@@ -8,29 +8,54 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.sql.*;
 
-public class MBTilesUtil implements Closeable {
+/**
+ * MBTiles 文件写入器。
+ * <p>基于 SQLite 实现 MBTiles 1.0 规范的瓦片写入，
+ * 支持批量事务提交以提升写入性能。</p>
+ *
+ * <h3>使用示例</h3>
+ * <pre>
+ *   try (MBTilesWriter writer = MBTilesWriter.open("output.mbtiles", "rwc")) {
+ *       writer.startWriting();
+ *       writer.putTile(z, x, y, tileFilePath);
+ *       writer.stopWriting();
+ *   }
+ * </pre>
+ */
+public class MBTilesWriter implements Closeable {
 
     private Connection connection;
     private String path;
 
-    public static MBTilesUtil open(String mbpath, String mode) throws SQLException {
-        MBTilesUtil util = new MBTilesUtil();
-        util.path = mbpath;
+    /**
+     * 打开或创建 MBTiles 文件。
+     *
+     * @param mbpath MBTiles 文件路径
+     * @param mode   SQLite 打开模式："rwc"=读写创建，"rw"=读写，"r"=只读
+     * @return MBTilesWriter 实例
+     * @throws SQLException 数据库连接失败时抛出
+     */
+    public static MBTilesWriter open(String mbpath, String mode) throws SQLException {
+        MBTilesWriter writer = new MBTilesWriter();
+        writer.path = mbpath;
         String url = "jdbc:sqlite:" + mbpath;
         if ("rw".equals(mode) || "rwc".equals(mode)) {
             File file = new File(mbpath);
             if (!file.exists()) {
-                util.connection = DriverManager.getConnection(url);
-                util.initDatabase();
+                writer.connection = DriverManager.getConnection(url);
+                writer.initDatabase();
             } else {
-                util.connection = DriverManager.getConnection(url);
+                writer.connection = DriverManager.getConnection(url);
             }
         } else {
-            util.connection = DriverManager.getConnection(url);
+            writer.connection = DriverManager.getConnection(url);
         }
-        return util;
+        return writer;
     }
 
+    /**
+     * 初始化 MBTiles 数据库表结构。
+     */
     private void initDatabase() throws SQLException {
         try (Statement stmt = connection.createStatement()) {
             stmt.execute("CREATE TABLE IF NOT EXISTS tiles (" +
@@ -41,15 +66,35 @@ public class MBTilesUtil implements Closeable {
         }
     }
 
+    /**
+     * 开始批量写入（关闭自动提交）。
+     *
+     * @throws SQLException 数据库错误时抛出
+     */
     public void startWriting() throws SQLException {
         connection.setAutoCommit(false);
     }
 
+    /**
+     * 结束批量写入（提交事务并恢复自动提交）。
+     *
+     * @throws SQLException 数据库错误时抛出
+     */
     public void stopWriting() throws SQLException {
         connection.commit();
         connection.setAutoCommit(true);
     }
 
+    /**
+     * 将瓦片文件写入 MBTiles（读取文件后删除源文件）。
+     *
+     * @param z         缩放级别
+     * @param x         瓦片列号
+     * @param y         瓦片行号（TMS 坐标）
+     * @param tilePath  瓦片文件路径
+     * @throws SQLException 写入失败时抛出
+     * @throws IOException  读取文件失败时抛出
+     */
     public void putTile(int z, int x, int y, String tilePath) throws SQLException, IOException {
         byte[] data = Files.readAllBytes(new File(tilePath).toPath());
         try (PreparedStatement stmt = connection.prepareStatement(
@@ -63,6 +108,15 @@ public class MBTilesUtil implements Closeable {
         new File(tilePath).delete();
     }
 
+    /**
+     * 将瓦片字节数据写入 MBTiles。
+     *
+     * @param z    缩放级别
+     * @param x    瓦片列号
+     * @param y    瓦片行号（TMS 坐标）
+     * @param data 瓦片二进制数据
+     * @throws SQLException 写入失败时抛出
+     */
     public void putTileData(int z, int x, int y, byte[] data) throws SQLException {
         try (PreparedStatement stmt = connection.prepareStatement(
                 "INSERT OR REPLACE INTO tiles (zoom_level, tile_column, tile_row, tile_data) VALUES (?, ?, ?, ?)")) {

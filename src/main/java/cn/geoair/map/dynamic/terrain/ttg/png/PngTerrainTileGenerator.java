@@ -25,7 +25,7 @@ public class PngTerrainTileGenerator {
     private static Dataset projectDs = null;
     private static String projectPath = null;  // 重投影文件路径
     private static String encodePath = null;
-    private static TileUtil.BBox tileBoundTool;
+    private static TileMath.BBox tileBoundTool;
 
     private static final int TILE_SIZE = 256;
     private static final int BUFFER = 1;
@@ -191,7 +191,7 @@ public class PngTerrainTileGenerator {
         boolean isSaveMbtiles = output.endsWith(".mbtiles");
         String outputDir = output;
         if (isSaveMbtiles) {
-            outputDir = System.getProperty("java.io.tmpdir") + File.separator + Util.uuid();
+            outputDir = System.getProperty("java.io.tmpdir") + File.separator + IoHelper.uuid();
         }
 
         // 获取 output 的父目录，用于存放重投影文件和金字塔文件
@@ -222,7 +222,7 @@ public class PngTerrainTileGenerator {
             if (isSaveMbtiles && new File(output).exists()) {
                 new File(output).delete();
             } else {
-                Util.emptyDir(output);
+                IoHelper.emptyDir(output);
             }
             // 清理重投影文件
             if (reProjectFileName != null && !reProjectFileName.isEmpty() && !"UUID".equals(reProjectFileName)) {
@@ -247,7 +247,7 @@ public class PngTerrainTileGenerator {
           Gir.log.info(">> 步骤" + (++stepIndex) + ": 清空输出文件夹 - 完成");
         }
 
-        tileBoundTool = TileUtil.TILE_BOUND_MAP.get(epsg);
+        tileBoundTool = TileMath.TILE_BOUND_MAP.get(epsg);
         // 移除默认回退到3857的逻辑，如果epsg不存在应该报错
         if (tileBoundTool == null) {
             throw new IllegalArgumentException("Unsupported EPSG code: " + epsg);
@@ -270,7 +270,7 @@ public class PngTerrainTileGenerator {
             if (reProjectFileName != null && !reProjectFileName.isEmpty() && !"UUID".equals(reProjectFileName)) {
                 reprojectFileName = reProjectFileName;
             } else {
-                reprojectFileName = Util.uuid();
+                reprojectFileName = IoHelper.uuid();
             }
 
             // 重投影文件放到 output 同级目录
@@ -285,7 +285,7 @@ public class PngTerrainTileGenerator {
                 Gir.log.info(">> 步骤" + (++stepIndex) + ": 复用已有重投影文件 " + projectPath + " - 完成");
             } else {
                 // 执行重投影
-                GdalUtil.reprojectImage(sourceDs, projectPath, epsg, resampling);
+                GdalHelper.reprojectImage(sourceDs, projectPath, epsg, resampling);
                 projectDs = gdal.Open(projectPath);
                 if (projectDs == null) {
                     throw new RuntimeException("重投影文件打开失败: " + projectPath);
@@ -346,8 +346,8 @@ public class PngTerrainTileGenerator {
 
         // ============ 关键修复：使用实际的数据坐标系（destEpsg）而不是传入的epsg ============
         for (int tz = minZoom; tz <= maxZoom; tz++) {
-            TileUtil.TileRC minRC = TileUtil.getTileByCoors(startPoint, tz, destEpsg);
-            TileUtil.TileRC maxRC = TileUtil.getTileByCoors(endPoint, tz, destEpsg);
+            TileMath.TileRC minRC = TileMath.tileByCoordinate(startPoint, tz, destEpsg);
+            TileMath.TileRC maxRC = TileMath.tileByCoordinate(endPoint, tz, destEpsg);
             tileCount.addAndGet((long) (maxRC.row - minRC.row + 1) * (maxRC.column - minRC.column + 1));
             LevelInfo info = new LevelInfo();
             info.tminx = minRC.column;
@@ -376,13 +376,13 @@ public class PngTerrainTileGenerator {
             OverviewInfo overviewInfo = getOverviewInfo(dsInfo, tz, overViewInfo);
 
             for (int j = info.tminx; j <= info.tmaxx; j++) {
-                Util.mkdirsSync(finalOutputDir + File.separator + tz + File.separator + j);
+                IoHelper.mkdirsSync(finalOutputDir + File.separator + tz + File.separator + j);
                 for (int i = info.tminy; i <= info.tmaxy; i++) {
 
                     int finalTz = tz, finalJ = j, finalI = i;
 
                     // Mapbox / Terrarium：沿用原有 geoQuery 逻辑
-                        double[] tileBound = TileUtil.stTileEnvelope(tz, j, i, BUFFER, destEpsg);
+                        double[] tileBound = TileMath.tileEnvelope(tz, j, i, BUFFER, destEpsg);
                         GeoQueryResult result = geoQuery(overviewInfo, tileBound[0], tileBound[1], tileBound[2], tileBound[3]);
 
                         CreateTile.ReadInfo readInfo = convertReadInfo(result.rb);
@@ -427,7 +427,7 @@ public class PngTerrainTileGenerator {
         }
 
         long endTime = System.currentTimeMillis();
-        Util.PrettyTimeResult timeResult = Util.prettyTime(endTime - startTime);
+        IoHelper.PrettyTimeResult timeResult = IoHelper.prettyTime(endTime - startTime);
         Gir.log.info("\n\n转换完成，用时 %.2f %s。%n", timeResult.resultTime, timeResult.unit);
 
         executorService.shutdown();
@@ -502,7 +502,7 @@ public class PngTerrainTileGenerator {
 
         if (overviewFactors.length > 0) {
             ds.FlushCache();
-            ds.BuildOverviews(GdalUtil.getBuildOverviewResampling(resampling), overviewFactors);
+            ds.BuildOverviews(GdalHelper.getOverviewResamplingName(resampling), overviewFactors);
             ds.FlushCache();
 
             Band band = ds.GetRasterBand(1);
@@ -753,7 +753,7 @@ public class PngTerrainTileGenerator {
     }
 
     private static void importMbtiles(String tileDir, String mbtilesPath) throws Exception {
-        try (MBTilesUtil mbtiles = MBTilesUtil.open(mbtilesPath, "rwc")) {
+        try (MBTilesWriter mbtiles = MBTilesWriter.open(mbtilesPath, "rwc")) {
             mbtiles.startWriting();
             File dir = new File(tileDir);
             String[] zFolds = dir.list();

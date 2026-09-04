@@ -78,9 +78,10 @@ cn.geoair.map.dynamic.terrain.ttg/
 │   ├── PngTerrainTileGenerator.java  # 核心调度
 │   ├── CreateTile.java           # 瓦片创建（ThreadLocal 优化）
 │   ├── DemEncode.java            # RGB 编码（Mapbox/Terrarium）
-│   ├── GdalUtil.java             # GDAL 工具
-│   ├── TileUtil.java             # 坐标计算
-│   └── MBTilesUtil.java          # MBTiles 写入
+│   ├── GdalHelper.java           # GDAL 驱动/重采样/重投影
+│   ├── TileMath.java             # 瓦片坐标计算
+│   ├── IoHelper.java             # 文件IO/UUID/时间格式化
+│   └── MBTilesWriter.java        # MBTiles SQLite 写入
 └── cesium/         # Cesium quantized-mesh 生成
     ├── Dem2Cesium.java                   # 入口
     ├── CesiumTerrainGenerator.java       # 核心调度
