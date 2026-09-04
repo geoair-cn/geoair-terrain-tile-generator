@@ -1,0 +1,94 @@
+# geoair-terrain-tile-generator
+
+高性能 DEM 地形瓦片生成工具，基于 [FreeGIS/dem2terrain](https://github.com/FreeGIS/dem2terrain) 的 Node.js 实现用 Java 重写，解决了原版在省级别 DEM 数据切片时内存占用过高、耗时过长的问题。
+
+## 为什么重写
+
+原版 dem2terrain 采用 Node.js 多进程架构，每个瓦片 fork 子进程处理。对于省级别 DEM（如新疆 80GB+）切 0-12 级瓦片：
+
+| 方案 | 耗时 | 内存占用 |
+|------|------|----------|
+| dem2terrain (Node.js) | 2-3 天 | 32GB+（多进程累积） |
+| **geoair-terrain-tile-generator** | **3-5 分钟** | **2-4GB（单进程线程池）** |
+
+核心优化：
+- **线程池替代多进程**：使用 `ExecutorService` 线程池复用 GDAL Dataset，避免 fork 开销
+- **ThreadLocal 复用缓冲区**：每线程独立缓冲区，消除每瓦片 2MB 垃圾分配
+- **单进程内完成全部工作**：避免进程间内存累积和 IPC 开销
+- **影像金字塔预构建**：利用 GDAL Overview 机制，低层级直接读取降采样数据
+
+## 功能
+
+### PNG 地形瓦片（二维）
+
+输出 Mapbox Terrain-RGB 或 Terrarium 编码的 PNG 瓦片，支持 MBTiles 打包。
+
+```
+Dem2Png input.tif output [minZoom] [maxZoom] [epsg] [encoding] [isClean] [resampling] [reProjectFileName]
+```
+
+| 参数 | 说明 |
+|------|------|
+| `input` | 输入 DEM GeoTIFF |
+| `output` | 输出目录，`.mbtiles` 结尾则写 MBTiles |
+| `minZoom` / `maxZoom` | 缩放级别范围，默认 0 / 12 |
+| `epsg` | 目标坐标系，支持 4326 / 3857 / 4490 |
+| `encoding` | `mapbox` 或 `terrarium` |
+| `isClean` | 1=清空输出目录，0=保留 |
+| `resampling` | 重采样方式：1=AVERAGE 2=BILINEAR 3=CUBIC ... |
+| `reProjectFileName` | 重投影文件名，`UUID` 自动生成 |
+
+### Cesium 地形瓦片（三维）
+
+输出 Cesium quantized-mesh 格式的 `.terrain` 文件，可直接用于 `CesiumTerrainProvider`。
+
+```
+Dem2Cesium input.tif output [minZoom] [maxZoom] [epsg] [isClean] [resampling] [reProjectFileName] [meshPrecision]
+```
+
+| 参数 | 说明 |
+|------|------|
+| `meshPrecision` | LOW(33x33) / MEDIUM(65x65) / HIGH(129x129) / ULTRA(257x257) |
+
+Cesium 输出固定 EPSG:4326 + TMS 瓦片方案，输入非 4326 时自动重投影。
+
+## 环境要求
+
+- JDK 8+
+- GDAL Java binding 与原生库（`org.gdal:gdal:3.7.2`）
+- 配置 `GDAL_DATA`、`PROJ_DATA` 环境变量
+
+## 构建
+
+```bash
+mvn compile
+```
+
+## 代码结构
+
+```
+cn.geoair.map.dynamic.terrain.ttg/
+├── model/          # 共享数据模型
+│   ├── Bounds.java           # 瓦片地理边界
+│   ├── Range.java            # 瓦片行列号范围
+│   ├── CesiumOptions.java    # Cesium 生成选项
+│   └── DatasetInfo.java      # 数据集信息
+├── png/            # PNG 地形瓦片生成
+│   ├── Dem2Png.java                  # 入口
+│   ├── PngTerrainTileGenerator.java  # 核心调度
+│   ├── CreateTile.java           # 瓦片创建（ThreadLocal 优化）
+│   ├── DemEncode.java            # RGB 编码（Mapbox/Terrarium）
+│   ├── GdalUtil.java             # GDAL 工具
+│   ├── TileUtil.java             # 坐标计算
+│   └── MBTilesUtil.java          # MBTiles 写入
+└── cesium/         # Cesium quantized-mesh 生成
+    ├── Dem2Cesium.java                   # 入口
+    ├── CesiumTerrainGenerator.java       # 核心调度
+    ├── CesiumTileMath.java               # TMS 坐标计算
+    └── CesiumQuantizedMeshEncoder.java   # 二进制编码
+```
+
+## 致谢
+
+- [FreeGIS/dem2terrain](https://github.com/FreeGIS/dem2terrain) - 原始 Node.js 实现
+- [Cesium quantized-mesh](https://github.com/CesiumGS/quantized-mesh) - 地形格式规范

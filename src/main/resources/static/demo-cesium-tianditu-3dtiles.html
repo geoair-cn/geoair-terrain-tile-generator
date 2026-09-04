@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cesium 天地图 + 倾斜模型示例</title>
+    <!-- Cesium CSS -->
+    <link
+      href="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Widgets/widgets.css"
+      rel="stylesheet"
+    />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+
+      #cesiumContainer {
+        width: 100%;
+        height: 100%;
+      }
+
+      /* 控制面板样式 */
+      .control-panel {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: rgba(0, 30, 60, 0.8);
+        border-radius: 8px;
+        padding: 15px;
+        min-width: 200px;
+        color: #fff;
+        font-family: "Microsoft YaHei", sans-serif;
+        z-index: 1000;
+      }
+
+      .control-panel h3 {
+        margin: 0 0 15px 0;
+        font-size: 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        padding-bottom: 10px;
+      }
+
+      .layer-item {
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .layer-item label {
+        font-size: 14px;
+        flex: 1;
+      }
+
+      .layer-item input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+      }
+
+      .layer-group {
+        margin-top: 15px;
+        padding-top: 15px;
+        border-top: 1px solid rgba(255, 255, 255, 0.2);
+      }
+
+      .layer-group-title {
+        font-size: 14px;
+        color: #00d4ff;
+        margin-bottom: 10px;
+        font-weight: bold;
+      }
+
+      /* 加载提示 */
+      .loading-tip {
+        position: absolute;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 30, 60, 0.8);
+        color: #fff;
+        padding: 10px 20px;
+        border-radius: 5px;
+        font-size: 14px;
+        z-index: 1000;
+      }
+
+      /* 避免Cesium logo遮挡 */
+      .cesium-viewer-bottom {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Cesium 容器 -->
+    <div id="cesiumContainer"></div>
+
+    <!-- 控制面板 -->
+    <div class="control-panel">
+      <h3>图层控制</h3>
+
+      <!-- 底图控制 -->
+      <div class="layer-group">
+        <div class="layer-group-title">底图</div>
+        <div class="layer-item">
+          <label>天地图影像</label>
+          <input
+            type="checkbox"
+            id="tiandituImg"
+            checked
+            onchange="toggleTiandituImg()"
+          />
+        </div>
+        <div class="layer-item">
+          <label>天地图注记</label>
+          <input
+            type="checkbox"
+            id="tiandituCia"
+            checked
+            onchange="toggleTiandituCia()"
+          />
+        </div>
+      </div>
+
+      <!-- 倾斜模型控制 -->
+      <div class="layer-group">
+        <div class="layer-group-title">倾斜模型</div>
+        <div class="layer-item">
+          <label>倾斜模型</label>
+          <input
+            type="checkbox"
+            id="tileset1"
+            onchange="toggleTileset('tileset1')"
+          />
+        </div>
+      </div>
+
+      <!-- 视角控制 -->
+      <div class="layer-group">
+        <div class="layer-group-title">快捷视角</div>
+        <button
+          style="
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            background: #00d4ff;
+            border: none;
+            color: #fff;
+            border-radius: 4px;
+            cursor: pointer;
+          "
+          onclick="flyToTileset()"
+        >
+          飞往倾斜模型
+        </button>
+      </div>
+    </div>
+
+    <!-- 加载提示 -->
+    <div class="loading-tip" id="loadingTip" style="display: none">
+      正在加载倾斜模型...
+    </div>
+
+    <!-- Cesium JS -->
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Cesium.js"></script>
+
+    <script>
+      // 天地图 Token（请替换为你自己的 Token）
+      const TDT_TOKEN = "ff02c493ec9d4a255a652b6efb37e992";
+
+      // 倾斜模型配置（从 config.js 中提取）
+      const TILESETS_CONFIG = {
+        tileset1: {
+          name: "和谐派出所",
+          url: "http://wuhan.gishub.com.cn:9003/gve/20260529/3DTiles_2060162837798006786/das切片/ConvertFormat_20260526131401/tileset.json",
+          heightTerrain: 6,
+          position: { lng: 77.4428, lat: 37.8552, alt: 500 },
+        },
+      };
+
+      // 存储图层引用
+      let viewer;
+      let tiandituImgLayer;
+      let tiandituCiaLayer;
+      const loadedTilesets = {};
+
+      // 初始化 Cesium Viewer
+      async function initViewer() {
+        try {
+          // 设置 Cesium Ion Token（可选，如果有）
+          Cesium.Ion.defaultAccessToken = "your_cesium_ion_token";
+
+          // 创建 Viewer
+          viewer = new Cesium.Viewer("cesiumContainer", {
+            animation: false,
+            timeline: false,
+            baseLayerPicker: false,
+            geocoder: false,
+            homeButton: false,
+            fullscreenButton: false,
+            infoBox: false,
+            selectionIndicator: false,
+            sceneModePicker: false,
+            navigationHelpButton: false,
+            baseLayer: false, // 不加载默认底图
+            creditContainer: document.createElement("div"),
+            terrain: new Cesium.Terrain(Cesium.CesiumTerrainProvider.fromUrl(terrainUrl)),
+            contextOptions: {
+              webgl: {
+                antialias: true,
+              },
+            },
+          });
+
+          // 隐藏 Cesium logo
+          viewer.cesiumWidget.creditContainer.style.display = "none";
+
+          // 加载天地图底图
+          loadTiandituBasemap();
+
+          // 设置初始视角（喀什地区）
+          viewer.camera.setView({
+            destination: Cesium.Cartesian3.fromDegrees(
+              87.579386,
+              43.844596,
+              40000,
+            ),
+            orientation: {
+              heading: 0,
+              pitch: -90,
+              roll: 0,
+            },
+          });
+
+          console.log("Cesium Viewer 初始化成功");
+        } catch (error) {
+          console.error("初始化 Cesium Viewer 失败:", error);
+        }
+      }
+
+      // 加载天地图底图（影像 + 注记）
+      function loadTiandituBasemap() {
+        try {
+          // 天地图影像图层（img_c - 球面墨卡托投影）
+          const imgProvider = new Cesium.UrlTemplateImageryProvider({
+            url: `https://{s}.tianditu.gov.cn/img_c/wmts?service=WMTS&version=1.0.0&request=GetTile&layer=img&style=default&format=tiles&tilematrixset=c&tilematrix={z}&tilerow={y}&tilecol={x}&tk=${TDT_TOKEN}`,
+            subdomains: ["t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7"],
+            maximumLevel: 18,
+            credit: "天地图影像",
+          });
+
+          tiandituImgLayer =
+            viewer.imageryLayers.addImageryProvider(imgProvider);
+
+          // 天地图注记图层（cia_c - 球面墨卡托投影）
+          const ciaProvider = new Cesium.UrlTemplateImageryProvider({
+            url: `https://{s}.tianditu.gov.cn/cia_c/wmts?service=WMTS&version=1.0.0&request=GetTile&layer=cia&style=default&format=tiles&tilematrixset=c&tilematrix={z}&tilerow={y}&tilecol={x}&tk=${TDT_TOKEN}`,
+            subdomains: ["t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7"],
+            maximumLevel: 18,
+            credit: "天地图注记",
+          });
+
+          tiandituCiaLayer =
+            viewer.imageryLayers.addImageryProvider(ciaProvider);
+
+          console.log("天地图底图加载成功");
+        } catch (error) {
+          console.error("加载天地图底图失败:", error);
+        }
+      }
+
+      // 加载倾斜模型（3DTiles）
+      async function loadTileset(tilesetId) {
+        const config = TILESETS_CONFIG[tilesetId];
+        if (!config) {
+          console.error("未找到倾斜模型配置:", tilesetId);
+          return;
+        }
+
+        // 显示加载提示
+        document.getElementById("loadingTip").style.display = "block";
+        document.getElementById(
+          "loadingTip",
+        ).textContent = `正在加载 ${config.name}...`;
+
+        try {
+          // 加载 3DTiles
+          const tileset = await Cesium.Cesium3DTileset.fromUrl(config.url, {
+            skipLevelOfDetail: true,
+            baseScreenSpaceError: 1024,
+            skipScreenSpaceErrorFactor: 16,
+            skipLevels: 1,
+            immediatelyLoadDesiredLevelOfDetail: false,
+            loadSiblings: false,
+            cullWithChildrenBounds: true,
+          });
+
+          // 添加到场景
+          viewer.scene.primitives.add(tileset);
+
+          // 调整高度（根据 heightTerrain 配置）
+          if (config.heightTerrain) {
+            const cartographic = Cesium.Cartographic.fromCartesian(
+              tileset.boundingSphere.center,
+            );
+            const surface = Cesium.Cartesian3.fromRadians(
+              cartographic.longitude,
+              cartographic.latitude,
+              0.0,
+            );
+            const offset = Cesium.Cartesian3.fromRadians(
+              cartographic.longitude,
+              cartographic.latitude,
+              config.heightTerrain,
+            );
+            const translation = Cesium.Cartesian3.subtract(
+              offset,
+              surface,
+              new Cesium.Cartesian3(),
+            );
+            tileset.modelMatrix = Cesium.Matrix4.fromTranslation(translation);
+          }
+
+          // 存储引用
+          loadedTilesets[tilesetId] = tileset;
+
+          console.log(`${config.name} 加载成功`);
+
+          // 隐藏加载提示
+          document.getElementById("loadingTip").style.display = "none";
+
+          // 飞往倾斜模型
+          viewer.zoomTo(tileset);
+        } catch (error) {
+          console.error(`加载 ${config.name} 失败:`, error);
+          document.getElementById(
+            "loadingTip",
+          ).textContent = `加载失败: ${error.message}`;
+          setTimeout(() => {
+            document.getElementById("loadingTip").style.display = "none";
+          }, 3000);
+        }
+      }
+
+      // 切换天地图影像显示/隐藏
+      function toggleTiandituImg() {
+        if (tiandituImgLayer) {
+          tiandituImgLayer.show =
+            document.getElementById("tiandituImg").checked;
+        }
+      }
+
+      // 切换天地图注记显示/隐藏
+      function toggleTiandituCia() {
+        if (tiandituCiaLayer) {
+          tiandituCiaLayer.show =
+            document.getElementById("tiandituCia").checked;
+        }
+      }
+
+      // 切换倾斜模型显示/隐藏
+      function toggleTileset(tilesetId) {
+        const checked = document.getElementById(tilesetId).checked;
+
+        if (checked) {
+          // 显示：如果已加载则显示，否则加载
+          if (loadedTilesets[tilesetId]) {
+            loadedTilesets[tilesetId].show = true;
+          } else {
+            loadTileset(tilesetId);
+          }
+        } else {
+          // 隐藏
+          if (loadedTilesets[tilesetId]) {
+            loadedTilesets[tilesetId].show = false;
+          }
+        }
+      }
+
+      // 飞往喀什地区
+      function flyToKashi() {
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(
+            87.579386,
+            43.844596,
+            40000,
+          ),
+          orientation: {
+            heading: 0,
+            pitch: -90,
+            roll: 0,
+          },
+          duration: 3,
+        });
+      }
+
+      // 飞往倾斜模型（选择第一个已加载的）
+      function flyToTileset() {
+        const tilesetIds = Object.keys(loadedTilesets);
+        if (tilesetIds.length > 0) {
+          const tileset = loadedTilesets[tilesetIds[0]];
+          if (tileset && tileset.show) {
+            viewer.zoomTo(tileset);
+          } else {
+            alert("请先加载一个倾斜模型");
+          }
+        } else {
+          alert("请先加载一个倾斜模型");
+        }
+      }
+
+      // 页面加载完成后初始化
+      window.onload = function () {
+        initViewer();
+      };
+    </script>
+  </body>
+</html>

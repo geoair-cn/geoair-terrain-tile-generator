@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Cesium 三维地形 Demo</title>
+    <script src="./Cesium/Cesium.js"></script>
+    <link href="./Cesium/Widgets/widgets.css" rel="stylesheet">
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        html,body,#cesiumContainer { width:100%; height:100%; overflow:hidden; }
+        #toolbar {
+            position:absolute; top:10px; left:10px; z-index:1000;
+            background:rgba(0,0,0,0.82); color:#fff; padding:14px 18px;
+            border-radius:8px; font:13px/1.6 "Microsoft YaHei",sans-serif; max-width:420px;
+        }
+        #toolbar h3 { margin:0 0 8px; color:#6cf; }
+        #toolbar label { display:block; margin:6px 0 2px; color:#aaa; font-size:12px; }
+        #toolbar input, #toolbar select {
+            width:100%; padding:5px 8px; margin-bottom:2px; border:1px solid #555;
+            border-radius:4px; background:#1a1a2e; color:#eee; font-size:12px;
+        }
+        #toolbar button {
+            margin:8px 4px 0 0; padding:6px 14px; border:none; border-radius:4px;
+            background:#3b82f6; color:#fff; cursor:pointer; font-weight:bold; font-size:13px;
+        }
+        #toolbar button.danger { background:#dc2626; }
+        #toolbar button:hover { filter:brightness(1.2); }
+        #status {
+            margin-top:8px; padding:6px 8px; font-size:11px; color:#aaa;
+            background:rgba(255,255,255,0.05); border-radius:4px;
+            min-height:22px; max-height:120px; overflow-y:auto;
+        }
+    </style>
+</head>
+<body>
+    <div id="cesiumContainer"></div>
+    <div id="toolbar">
+        <h3>🌍 Cesium 三维地形</h3>
+        <label>自定义 XYZ 底图 URL</label>
+        <input id="xyzUrl" value="http://devs.gishub.com.cn:9098/geowebcache/gishub/xyz/arcgis/3857/{z}/{x}/{y}?zxyType=zxy&orginType=wmts"
+               placeholder="{z}/{x}/{y} 模板">
+        <label>layer.json 地址</label>
+        <input id="terrainUrl" value="http://wuhan.gishub.com.cn:9003/gve/20260105/terrain_2007985005465276418/ksdemtiles/layer.json">
+        <label>飞到 (经度, 纬度)</label>
+        <input id="centerLonLat" value="87.6, 43.8">
+        <button onclick="loadTerrain()">🔄 加载地形</button>
+        <button class="danger" onclick="removeTerrain()">✕ 移除地形</button>
+        <div id="status">正在初始化...</div>
+    </div>
+
+    <script>
+        var viewer;
+
+        // ====== 初始化地球 ======
+        viewer = new Cesium.Viewer('cesiumContainer', {
+            animation: false,
+            timeline: false,
+            baseLayerPicker: false,
+            fullscreenButton: false,
+            geocoder: false,
+            homeButton: false,
+            infoBox: false,
+            sceneModePicker: false,
+            selectionIndicator: false,
+            navigationHelpButton: false,
+            navigationInstructionsInitiallyVisible: false,
+            // 默认底图：自定义 XYZ 服务
+            imageryProvider: createXyzImageryProvider()
+        });
+
+        // 去掉默认 ion 地形
+        viewer.scene.terrainProvider = new Cesium.EllipsoidTerrainProvider();
+
+        document.getElementById('status').textContent = '✅ 地球就绪 — 点击"加载地形"';
+        console.log('✅ Cesium 初始化完成');
+
+        // ====== 创建自定义 XYZ 底图提供器 ======
+        function createXyzImageryProvider() {
+            var urlTemplate = document.getElementById('xyzUrl').value.trim()
+                .replace(/\{z\}/g, '{z}')
+                .replace(/\{x\}/g, '{x}')
+                .replace(/\{y\}/g, '{y}');
+            return new Cesium.UrlTemplateImageryProvider({
+                url: urlTemplate,
+                // EPSG:4490 / 4326 使用经纬度瓦片方案
+                tilingScheme: new Cesium.GeographicTilingScheme({
+                    numberOfLevelZeroTilesX: 1,
+                    numberOfLevelZeroTilesY: 1
+                })
+            });
+        }
+
+        // ====== 切换底图 ======
+        function reloadImagery() {
+            viewer.imageryLayers.removeAll();
+            viewer.imageryLayers.addImageryProvider(createXyzImageryProvider());
+        }
+
+        async function loadTerrain() {
+            var st = document.getElementById('status');
+            var url = document.getElementById('terrainUrl').value.trim();
+            var ll = document.getElementById('centerLonLat').value.split(',');
+            var lon = parseFloat(ll[0]) || 87.6;
+            var lat = parseFloat(ll[1]) || 43.8;
+
+            if (!url) {
+                st.textContent = '❌ 请输入地形服务地址';
+                return;
+            }
+
+            st.textContent = '⏳ 加载地形...';
+
+            try {
+                // 直接使用layer.json URL
+                var tp = new Cesium.CesiumTerrainProvider({
+                    url: url,
+                    requestVertexNormals: false,
+                    requestWaterMask: false
+                });
+
+                await tp.readyPromise;
+
+                // 检查地形是否真的加载了数据
+                var terrain = viewer.scene.terrainProvider;
+                if (terrain && terrain.ready) {
+                    viewer.scene.terrainProvider = tp;
+                    st.textContent = '✅ 地形加载成功!';
+
+                    viewer.camera.flyTo({
+                        destination: Cesium.Cartesian3.fromDegrees(lon, lat, 20000),
+                        duration: 2
+                    });
+                } else {
+                    throw new Error('地形未就绪');
+                }
+
+            } catch(e) {
+                console.error('地形加载失败:', e);
+                st.textContent = '❌ 加载失败: ' + e.message;
+                viewer.scene.terrainProvider = new Cesium.EllipsoidTerrainProvider();
+            }
+        }
+
+        function removeTerrain() {
+            viewer.scene.terrainProvider = new Cesium.EllipsoidTerrainProvider();
+            document.getElementById('status').textContent = '已移除自定义地形';
+        }
+
+        // 底图 URL 修改后重新加载
+        document.getElementById('xyzUrl').addEventListener('change', reloadImagery);
+    </script>
+</body>
+</html>
