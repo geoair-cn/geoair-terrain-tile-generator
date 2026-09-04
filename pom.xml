@@ -9,7 +9,29 @@
     <version>J8.1.6</version>
     <packaging>jar</packaging>
     <name>geoair-terrain-tile-generator</name>
+    <url>https://github.com/geoair-cn/geoair-terrain-tile-generator</url>
 
+    <organization>
+        <name>GeoAir</name>
+        <url>https://xmt.geoair.cn/</url>
+    </organization>
+
+    <licenses>
+        <license>
+            <name>The Apache Software License, Version 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>张逢吉</name>
+            <email>zfj20250104@qq.com</email>
+            <organization>geoair</organization>
+            <organizationUrl>https://xmt.geoair.cn/</organizationUrl>
+        </developer>
+    </developers>
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
