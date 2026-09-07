@@ -1,6 +1,6 @@
 package cn.geoair.map.dynamic.terrain.ttg.cesium;
 
-import cn.geoair.map.dynamic.terrain.ttg.model.CesiumOptions;
+import cn.geoair.map.dynamic.terrain.ttg.cesium.model.CesiumOptions;
 
 /**
  * DEM 转 Cesium quantized-mesh 地形瓦片生成器。

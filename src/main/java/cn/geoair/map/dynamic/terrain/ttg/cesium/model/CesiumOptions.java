@@ -1,4 +1,4 @@
-package cn.geoair.map.dynamic.terrain.ttg.model;
+package cn.geoair.map.dynamic.terrain.ttg.cesium.model;
 
 import cn.geoair.map.dynamic.terrain.ttg.cesium.CesiumTerrainGenerator.MeshPrecision;
 

@@ -1,10 +1,10 @@
 package cn.geoair.map.dynamic.terrain.ttg.cesium;
 
 import cn.geoair.base.Gir;
-import cn.geoair.map.dynamic.terrain.ttg.model.Bounds;
-import cn.geoair.map.dynamic.terrain.ttg.model.CesiumOptions;
-import cn.geoair.map.dynamic.terrain.ttg.model.DatasetInfo;
-import cn.geoair.map.dynamic.terrain.ttg.model.Range;
+import cn.geoair.map.dynamic.terrain.ttg.cesium.model.Bounds;
+import cn.geoair.map.dynamic.terrain.ttg.cesium.model.CesiumOptions;
+import cn.geoair.map.dynamic.terrain.ttg.cesium.model.DatasetInfo;
+import cn.geoair.map.dynamic.terrain.ttg.cesium.model.Range;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -255,7 +255,7 @@ public final class CesiumTerrainGenerator {
             // ============ 步骤8: 写入 layer.json 元数据 ============
             Gir.log.info(">> 步骤{}: 写入 layer.json 元数据", ++stepIndex);
             writeLayerJson(output.toPath(), options, datasetInfo, availability);
-            Gir.log.info("  layer.json 已生成: {}", output.resolve("layer.json").toAbsolutePath());
+            Gir.log.info("  layer.json 已生成: {}", output.toPath().resolve("layer.json").toAbsolutePath());
 
         } finally {
             // ============ 步骤9: 资源清理 ============

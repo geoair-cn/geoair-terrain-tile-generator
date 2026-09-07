@@ -1,6 +1,6 @@
 package cn.geoair.map.dynamic.terrain.ttg.cesium;
 
-import cn.geoair.map.dynamic.terrain.ttg.model.Bounds;
+import cn.geoair.map.dynamic.terrain.ttg.cesium.model.Bounds;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;

@@ -1,7 +1,7 @@
 package cn.geoair.map.dynamic.terrain.ttg.cesium;
 
-import cn.geoair.map.dynamic.terrain.ttg.model.Bounds;
-import cn.geoair.map.dynamic.terrain.ttg.model.Range;
+import cn.geoair.map.dynamic.terrain.ttg.cesium.model.Bounds;
+import cn.geoair.map.dynamic.terrain.ttg.cesium.model.Range;
 
 /**
  * Cesium 瓦片数学计算工具类
