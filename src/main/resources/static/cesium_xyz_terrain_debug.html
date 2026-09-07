@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Cesium XYZ + Quantized Mesh 地形调试</title>
+
+    <script src="./Cesium/Cesium.js"></script>
+    <link href="./Cesium/Widgets/widgets.css" rel="stylesheet">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html,
+        body,
+        #cesiumContainer {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #toolbar {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            width: 470px;
+            max-height: calc(100vh - 20px);
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.86);
+            color: #fff;
+            padding: 14px 18px;
+            border-radius: 8px;
+            font: 13px/1.6 "Microsoft YaHei", sans-serif;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, .35);
+        }
+
+        #toolbar h3 {
+            margin: 0 0 8px;
+            color: #66ccff;
+        }
+
+        #toolbar label {
+            display: block;
+            margin: 8px 0 2px;
+            color: #aaa;
+            font-size: 12px;
+        }
+
+        #toolbar input {
+            width: 100%;
+            padding: 6px 8px;
+            margin-bottom: 2px;
+            border: 1px solid #555;
+            border-radius: 4px;
+            background: #1a1a2e;
+            color: #eee;
+            font-size: 12px;
+        }
+
+        #toolbar .row {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        #toolbar .row > * {
+            flex: 1;
+        }
+
+        #toolbar button {
+            margin: 8px 4px 0 0;
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            background: #3b82f6;
+            color: #fff;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 13px;
+        }
+
+        #toolbar button.green {
+            background: #16a34a;
+        }
+
+        #toolbar button.orange {
+            background: #d97706;
+        }
+
+        #toolbar button.gray {
+            background: #4b5563;
+        }
+
+        #toolbar button.danger {
+            background: #dc2626;
+        }
+
+        #toolbar button:hover {
+            filter: brightness(1.15);
+        }
+
+        #status {
+            margin-top: 10px;
+            padding: 8px;
+            font-size: 11px;
+            color: #ccc;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 4px;
+            min-height: 42px;
+            max-height: 160px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .tip {
+            margin-top: 8px;
+            color: #8dd7ff;
+            font-size: 11px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div id="cesiumContainer"></div>
+
+<div id="toolbar">
+    <h3>🌍 Cesium XYZ + 三维地形调试</h3>
+
+    <label>XYZ 底图 URL（EPSG:3857 / XYZ）</label>
+    <input
+        id="xyzUrl"
+        value="http://devs.gishub.com.cn:9098/geowebcache/gishub/xyz/osm/3857/{z}/{x}/{y}?zxyType=zxy&amp;orginType=wmts"
+    >
+
+    <label>Quantized Mesh 地形根目录</label>
+    <input
+        id="terrainUrl"
+        value="http://localhost:12306/outcesium"
+    >
+
+    <label>飞到位置（经度,纬度）</label>
+    <input
+        id="centerLonLat"
+        value="87.6,43.8"
+    >
+
+    <div class="row">
+        <div>
+            <label>地形夸张倍数</label>
+            <input id="terrainExaggeration" type="number" value="5" min="1" max="20" step="0.5">
+        </div>
+        <div>
+            <label>底图透明度</label>
+            <input id="imageryAlpha" type="number" value="0.65" min="0" max="1" step="0.05">
+        </div>
+    </div>
+
+    <button class="green" onclick="reloadImagery()">🗺 加载 XYZ</button>
+    <button onclick="loadTerrain()">⛰ 加载地形</button>
+    <button class="orange" onclick="focusTerrain()">🎯 飞到地形</button>
+
+    <br>
+
+    <button onclick="applyTerrainExaggeration()">⛰ 应用夸张</button>
+    <button class="gray" onclick="toggleImagery()">👁 显示/隐藏底图</button>
+    <button class="gray" onclick="toggleTerrainBounds()">▣ 显示/隐藏范围</button>
+    <button class="danger" onclick="removeTerrain()">✕ 移除地形</button>
+
+    <div class="tip">
+        调试建议：5× 地形夸张 + 0.65 底图透明度 + “飞到地形”。
+    </div>
+
+    <div id="status">正在初始化...</div>
+</div>
+
+<script>
+    var viewer;
+    var currentImageryLayer = null;
+    var terrainBoundsEntity = null;
+    var terrainProvider = null;
+
+    // layer.json 中的默认范围；加载时会尝试从服务读取并覆盖。
+    var terrainBounds = [
+        73.46896201106023,
+        34.30613020163864,
+        96.41701756661573,
+        49.21140797941638
+    ];
+
+    // 避免大量 404 疯狂刷新 DOM。
+    var terrainErrorCount = 0;
+    var lastTerrainErrorTime = 0;
+
+    function logStatus(message) {
+        console.log(message);
+
+        var status = document.getElementById("status");
+        status.textContent =
+            new Date().toLocaleTimeString() +
+            "  " +
+            message +
+            "\n" +
+            status.textContent;
+    }
+
+    function initCesium() {
+        viewer = new Cesium.Viewer("cesiumContainer", {
+            animation: false,
+            timeline: false,
+            baseLayerPicker: false,
+            fullscreenButton: false,
+            geocoder: false,
+            homeButton: false,
+            infoBox: false,
+            sceneModePicker: false,
+            selectionIndicator: false,
+            navigationHelpButton: false,
+            navigationInstructionsInitiallyVisible: false,
+
+            // 兼容旧版/定制版 Cesium：Viewer 创建后再手动加载 XYZ。
+            imageryProvider: false
+        });
+
+        viewer.scene.terrainProvider =
+            new Cesium.EllipsoidTerrainProvider();
+
+        // 地形遮挡检测。
+        viewer.scene.globe.depthTestAgainstTerrain = true;
+
+        // 开启光照后山体明暗更明显。
+        viewer.scene.globe.enableLighting = true;
+
+        // 调试地形时关闭大气层，视觉更干净。
+        if (viewer.scene.skyAtmosphere) {
+            viewer.scene.skyAtmosphere.show = false;
+        }
+
+        // 背景使用深色，隐藏底图时地形轮廓更容易观察。
+        if (Cesium.Color && viewer.scene) {
+            viewer.scene.backgroundColor = Cesium.Color.BLACK;
+        }
+
+        reloadImagery();
+        applyTerrainExaggeration();
+
+        viewer.camera.setView({
+            destination: Cesium.Cartesian3.fromDegrees(
+                87.6,
+                43.8,
+                3000000
+            )
+        });
+
+        logStatus("✅ Cesium 初始化完成");
+    }
+
+    function createXyzImageryProvider() {
+        var url = document
+            .getElementById("xyzUrl")
+            .value
+            .trim();
+
+        if (!url) {
+            throw new Error("XYZ URL 不能为空");
+        }
+
+        var provider = new Cesium.UrlTemplateImageryProvider({
+            url: url,
+            tilingScheme: new Cesium.WebMercatorTilingScheme(),
+            tileWidth: 256,
+            tileHeight: 256,
+            minimumLevel: 0,
+            maximumLevel: 20
+        });
+
+        if (provider.errorEvent) {
+            provider.errorEvent.addEventListener(function (error) {
+                console.warn(
+                    "[XYZ]",
+                    "level=" + error.level,
+                    "x=" + error.x,
+                    "y=" + error.y,
+                    error.message
+                );
+            });
+        }
+
+        return provider;
+    }
+
+    function reloadImagery() {
+        if (!viewer) {
+            return;
+        }
+
+        try {
+            viewer.imageryLayers.removeAll();
+
+            var provider = createXyzImageryProvider();
+
+            currentImageryLayer =
+                viewer.imageryLayers.addImageryProvider(provider);
+
+            currentImageryLayer.show = true;
+            applyImageryAlpha();
+
+            logStatus("✅ XYZ 底图已加载");
+        } catch (e) {
+            console.error("XYZ 加载失败：", e);
+            logStatus("❌ XYZ 加载失败：" + e.message);
+        }
+    }
+
+    function applyImageryAlpha() {
+        if (!currentImageryLayer) {
+            return;
+        }
+
+        var alpha = parseFloat(
+            document.getElementById("imageryAlpha").value
+        );
+
+        if (isNaN(alpha)) {
+            alpha = 0.65;
+        }
+
+        alpha = Math.max(0, Math.min(1, alpha));
+        currentImageryLayer.alpha = alpha;
+    }
+
+    function toggleImagery() {
+        if (!currentImageryLayer) {
+            logStatus("⚠️ 当前没有 XYZ 底图");
+            return;
+        }
+
+        currentImageryLayer.show = !currentImageryLayer.show;
+
+        logStatus(
+            currentImageryLayer.show
+                ? "✅ 已显示 XYZ 底图"
+                : "✅ 已隐藏 XYZ 底图"
+        );
+    }
+
+    function setTerrainExaggeration(value) {
+        var applied = false;
+
+        // 新版 Cesium。
+        if ("verticalExaggeration" in viewer.scene) {
+            viewer.scene.verticalExaggeration = value;
+
+            if ("verticalExaggerationRelativeHeight" in viewer.scene) {
+                viewer.scene.verticalExaggerationRelativeHeight = 0.0;
+            }
+
+            applied = true;
+        }
+
+        // 部分旧版 Cesium。
+        if (
+            !applied &&
+            viewer.scene.globe &&
+            "terrainExaggeration" in viewer.scene.globe
+        ) {
+            viewer.scene.globe.terrainExaggeration = value;
+            applied = true;
+        }
+
+        return applied;
+    }
+
+    function applyTerrainExaggeration() {
+        if (!viewer) {
+            return;
+        }
+
+        var value = parseFloat(
+            document.getElementById("terrainExaggeration").value
+        );
+
+        if (isNaN(value) || value < 1) {
+            value = 1;
+        }
+
+        var applied = setTerrainExaggeration(value);
+
+        if (applied) {
+            logStatus("✅ 地形夸张：" + value + "×");
+        } else {
+            console.warn(
+                "当前 Cesium 版本没有 scene.verticalExaggeration 或 globe.terrainExaggeration"
+            );
+        }
+
+        applyImageryAlpha();
+    }
+
+    async function tryLoadLayerJson(rootUrl) {
+        var layerJsonUrl = rootUrl + "/layer.json";
+
+        try {
+            var response = await fetch(layerJsonUrl, {
+                cache: "no-store"
+            });
+
+            if (!response.ok) {
+                throw new Error("HTTP " + response.status);
+            }
+
+            var metadata = await response.json();
+
+            console.log("layer.json =", metadata);
+
+            if (
+                metadata.bounds &&
+                metadata.bounds.length === 4
+            ) {
+                terrainBounds = [
+                    Number(metadata.bounds[0]),
+                    Number(metadata.bounds[1]),
+                    Number(metadata.bounds[2]),
+                    Number(metadata.bounds[3])
+                ];
+
+                console.log(
+                    "terrain bounds =",
+                    terrainBounds
+                );
+            }
+
+            return metadata;
+        } catch (e) {
+            console.warn(
+                "直接读取 layer.json 失败，继续交给 CesiumTerrainProvider 读取：",
+                e
+            );
+
+            return null;
+        }
+    }
+
+    async function loadTerrain() {
+        var st = document.getElementById("status");
+
+        var url = document
+            .getElementById("terrainUrl")
+            .value
+            .trim()
+            .replace(/\/layer\.json(?:\?.*)?$/i, "")
+            .replace(/\/+$/, "");
+
+        if (!url) {
+            st.textContent = "❌ 请输入地形服务地址";
+            return;
+        }
+
+        terrainErrorCount = 0;
+        lastTerrainErrorTime = 0;
+
+        st.textContent = "⏳ 正在加载地形...";
+
+        try {
+            // 尝试读取 bounds，仅用于调试框和自动定位。
+            await tryLoadLayerJson(url);
+
+            var tp;
+
+            if (Cesium.CesiumTerrainProvider.fromUrl) {
+                tp = await Cesium.CesiumTerrainProvider.fromUrl(
+                    url,
+                    {
+                        requestVertexNormals: false,
+                        requestWaterMask: false,
+                        requestMetadata: false
+                    }
+                );
+            } else {
+                tp = new Cesium.CesiumTerrainProvider({
+                    url: url,
+                    requestVertexNormals: false,
+                    requestWaterMask: false
+                });
+
+                if (tp.readyPromise) {
+                    await tp.readyPromise;
+                }
+            }
+
+            if (tp.errorEvent) {
+                tp.errorEvent.addEventListener(function (error) {
+                    terrainErrorCount++;
+
+                    console.warn(
+                        "[Terrain]",
+                        "level=" + error.level,
+                        "x=" + error.x,
+                        "y=" + error.y,
+                        error.message
+                    );
+
+                    // 缺失瓦片不要重复重试。
+                    error.retry = false;
+
+                    // 每 500ms 最多更新一次状态，避免海量 404 把页面拖垮。
+                    var now = Date.now();
+
+                    if (
+                        terrainErrorCount <= 5 ||
+                        now - lastTerrainErrorTime > 500
+                    ) {
+                        lastTerrainErrorTime = now;
+
+                        st.textContent =
+                            "⚠️ 地形 Provider 已加载，但存在缺失瓦片\n" +
+                            "Level: " + error.level +
+                            "  X: " + error.x +
+                            "  Y: " + error.y +
+                            "\n累计错误: " + terrainErrorCount +
+                            "\n" + (error.message || "");
+                    }
+                });
+            }
+
+            terrainProvider = tp;
+            viewer.scene.terrainProvider = tp;
+
+            // 地形加载以后重新应用视觉增强。
+            applyTerrainExaggeration();
+            applyImageryAlpha();
+
+            // 显示 terrain bounds。
+            showTerrainBounds();
+
+            st.textContent =
+                "✅ 地形 Provider 加载成功\n" +
+                "已启用：地形夸张 + 光照 + 地形范围框\n" +
+                "正在飞到地形区域...";
+
+            focusTerrain();
+        } catch (e) {
+            console.error("地形 Provider 加载失败:", e);
+
+            st.textContent =
+                "❌ 地形 Provider 加载失败\n" +
+                e.message;
+
+            viewer.scene.terrainProvider =
+                new Cesium.EllipsoidTerrainProvider();
+
+            terrainProvider = null;
+        }
+    }
+
+    function getTerrainCenter() {
+        var west = terrainBounds[0];
+        var south = terrainBounds[1];
+        var east = terrainBounds[2];
+        var north = terrainBounds[3];
+
+        return {
+            lon: (west + east) / 2.0,
+            lat: (south + north) / 2.0
+        };
+    }
+
+    function focusTerrain() {
+        if (!viewer) {
+            return;
+        }
+
+        var centerInput =
+            document.getElementById("centerLonLat").value.split(",");
+
+        var inputLon = parseFloat(centerInput[0]);
+        var inputLat = parseFloat(centerInput[1]);
+
+        var center = getTerrainCenter();
+
+        var lon = isNaN(inputLon) ? center.lon : inputLon;
+        var lat = isNaN(inputLat) ? center.lat : inputLat;
+
+        /*
+         * 调试地形关键参数：
+         * - 高度 120km：比原来的 500km 更容易看到山体。
+         * - pitch -18°：低角度斜视，不要正俯视。
+         * - heading 25°：避免视觉完全沿南北方向。
+         */
+        viewer.camera.flyTo({
+            destination:
+                Cesium.Cartesian3.fromDegrees(
+                    lon,
+                    lat,
+                    120000
+                ),
+
+            orientation: {
+                heading: Cesium.Math.toRadians(25),
+                pitch: Cesium.Math.toRadians(-18),
+                roll: 0
+            },
+
+            duration: 1.6
+        });
+
+        logStatus(
+            "🎯 已飞到地形：lon=" +
+            lon.toFixed(4) +
+            ", lat=" +
+            lat.toFixed(4) +
+            "，高度=120km，pitch=-18°"
+        );
+    }
+
+    function showTerrainBounds() {
+        if (!viewer || !Cesium.Rectangle) {
+            return;
+        }
+
+        if (terrainBoundsEntity) {
+            viewer.entities.remove(terrainBoundsEntity);
+            terrainBoundsEntity = null;
+        }
+
+        var west = terrainBounds[0];
+        var south = terrainBounds[1];
+        var east = terrainBounds[2];
+        var north = terrainBounds[3];
+
+        terrainBoundsEntity = viewer.entities.add({
+            name: "Quantized Mesh Terrain Bounds",
+            rectangle: {
+                coordinates:
+                    Cesium.Rectangle.fromDegrees(
+                        west,
+                        south,
+                        east,
+                        north
+                    ),
+
+                // 调试用半透明红色范围。
+                material:
+                    Cesium.Color.RED.withAlpha(0.08),
+
+                outline: true,
+                outlineColor: Cesium.Color.RED,
+                outlineWidth: 3,
+
+                // 稍微抬高，防止边界被地形完全遮挡。
+                height: 3000
+            }
+        });
+
+        console.log(
+            "terrain bounds:",
+            terrainBounds
+        );
+    }
+
+    function toggleTerrainBounds() {
+        if (!terrainBoundsEntity) {
+            showTerrainBounds();
+            logStatus("✅ 已显示地形范围");
+            return;
+        }
+
+        terrainBoundsEntity.show =
+            !terrainBoundsEntity.show;
+
+        logStatus(
+            terrainBoundsEntity.show
+                ? "✅ 已显示地形范围"
+                : "✅ 已隐藏地形范围"
+        );
+    }
+
+    function removeTerrain() {
+        viewer.scene.terrainProvider =
+            new Cesium.EllipsoidTerrainProvider();
+
+        terrainProvider = null;
+        terrainErrorCount = 0;
+
+        if (terrainBoundsEntity) {
+            viewer.entities.remove(terrainBoundsEntity);
+            terrainBoundsEntity = null;
+        }
+
+        // 回到 1×，避免椭球也保留夸张状态。
+        setTerrainExaggeration(1.0);
+
+        logStatus("✅ 已移除自定义地形");
+    }
+
+    // 底图透明度实时变化。
+    document
+        .getElementById("imageryAlpha")
+        .addEventListener("input", applyImageryAlpha);
+
+    // XYZ URL 修改后重新加载。
+    document
+        .getElementById("xyzUrl")
+        .addEventListener("change", reloadImagery);
+
+    // 地形夸张倍数修改后直接应用。
+    document
+        .getElementById("terrainExaggeration")
+        .addEventListener("change", applyTerrainExaggeration);
+
+    initCesium();
+</script>
+
+</body>
+</html>
