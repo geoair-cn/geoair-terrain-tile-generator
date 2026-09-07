@@ -48,9 +48,29 @@ Dem2Cesium input.tif output [minZoom] [maxZoom] [epsg] [isClean] [resampling] [r
 
 | 参数 | 说明 |
 |------|------|
+| `minZoom` | 必须为 `0`。独立 Cesium 地形从第 0 级根瓦片开始遍历，不能跳过根级。 |
+| `maxZoom` | 最大缩放级别，范围 0-30。 |
 | `meshPrecision` | LOW(33x33) / MEDIUM(65x65) / HIGH(129x129) / ULTRA(257x257) |
 
 Cesium 输出固定 EPSG:4326 + TMS 瓦片方案，输入非 4326 时自动重投影。
+
+### Cesium 部署与验证
+
+生成目录包含 `layer.json` 与 `{z}/{x}/{y}.terrain`。`cesium-terrain-demo.html` 中应填写**生成目录地址**，而不是 `layer.json` 文件地址，例如：
+
+```javascript
+Cesium.CesiumTerrainProvider.fromUrl('http://localhost:12306/outcesium')
+```
+
+`.terrain` 文件已经在生成阶段 gzip 压缩。部署它们的 HTTP 服务必须正确返回以下响应头，否则浏览器不会解压二进制瓦片：
+
+```
+Access-Control-Allow-Origin: *
+Content-Encoding: gzip
+Content-Type: application/vnd.quantized-mesh
+```
+
+请通过 HTTP 服务访问验证页，不能直接用 `file://` 打开。页面会先校验 `layer.json`，再请求并解析一张第 0 级 `.terrain` 根瓦片；两步均成功才会显示验证通过。
 
 ## 环境要求
 

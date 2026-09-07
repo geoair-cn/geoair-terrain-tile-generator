@@ -39,8 +39,9 @@
         <label>自定义 XYZ 底图 URL</label>
         <input id="xyzUrl" value="http://devs.gishub.com.cn:9098/geowebcache/gishub/xyz/arcgis/3857/{z}/{x}/{y}?zxyType=zxy&orginType=wmts"
                placeholder="{z}/{x}/{y} 模板">
-        <label>layer.json 地址</label>
-        <input id="terrainUrl" value="http://wuhan.gishub.com.cn:9003/gve/20260105/terrain_2007985005465276418/ksdemtiles/layer.json">
+        <label>地形服务根目录</label>
+        <input id="terrainUrl" value="http://localhost:12306/outcesium"
+               placeholder="例如：http://localhost:12306/outcesium">
         <label>飞到 (经度, 纬度)</label>
         <input id="centerLonLat" value="87.6, 43.8">
         <button onclick="loadTerrain()">🔄 加载地形</button>
@@ -82,11 +83,8 @@
                 .replace(/\{y\}/g, '{y}');
             return new Cesium.UrlTemplateImageryProvider({
                 url: urlTemplate,
-                // EPSG:4490 / 4326 使用经纬度瓦片方案
-                tilingScheme: new Cesium.GeographicTilingScheme({
-                    numberOfLevelZeroTilesX: 1,
-                    numberOfLevelZeroTilesY: 1
-                })
+                // 默认 URL 是 EPSG:3857 XYZ 服务。
+                tilingScheme: new Cesium.WebMercatorTilingScheme()
             });
         }
 
@@ -98,7 +96,9 @@
 
         async function loadTerrain() {
             var st = document.getElementById('status');
-            var url = document.getElementById('terrainUrl').value.trim();
+            var url = document.getElementById('terrainUrl').value.trim()
+                .replace(/\/layer\.json(?:\?.*)?$/i, '')
+                .replace(/\/+$/, '');
             var ll = document.getElementById('centerLonLat').value.split(',');
             var lon = parseFloat(ll[0]) || 87.6;
             var lat = parseFloat(ll[1]) || 43.8;
@@ -109,30 +109,42 @@
             }
 
             st.textContent = '⏳ 加载地形...';
+            console.log('开始加载地形, URL:', url);
 
             try {
-                // 直接使用layer.json URL
-                var tp = new Cesium.CesiumTerrainProvider({
-                    url: url,
+                // fromUrl 接收地形服务根目录，并异步读取 {root}/layer.json。
+                var tp = await Cesium.CesiumTerrainProvider.fromUrl(url, {
                     requestVertexNormals: false,
-                    requestWaterMask: false
+                    requestWaterMask: false,
+                    requestMetadata: false
+                });
+                tp.errorEvent.addEventListener(function (error) {
+                    console.error('地形瓦片请求失败:', error);
+                    st.textContent = '❌ 地形瓦片请求失败: ' + error.message;
                 });
 
-                await tp.readyPromise;
+                // fromUrl 成功表示 layer.json 已通过校验。
+                viewer.scene.terrainProvider = tp;
 
-                // 检查地形是否真的加载了数据
-                var terrain = viewer.scene.terrainProvider;
-                if (terrain && terrain.ready) {
-                    viewer.scene.terrainProvider = tp;
-                    st.textContent = '✅ 地形加载成功!';
-
-                    viewer.camera.flyTo({
-                        destination: Cesium.Cartesian3.fromDegrees(lon, lat, 20000),
-                        duration: 2
-                    });
-                } else {
-                    throw new Error('地形未就绪');
+                // 再直接请求一个已声明可用的根瓦片，确保 .terrain 的网络传输、
+                // gzip 解压和 quantized-mesh 二进制解析均可用。
+                var verified = false;
+                for (var rootX = 0; rootX < 2 && !verified; rootX++) {
+                    if (tp.getTileDataAvailable(rootX, 0, 0)) {
+                        await tp.requestTileGeometry(rootX, 0, 0);
+                        verified = true;
+                    }
                 }
+                if (!verified) {
+                    throw new Error('layer.json 未声明任何第 0 级根瓦片');
+                }
+                st.textContent = '✅ layer.json 与根瓦片均验证成功';
+                console.log('✅ layer.json 与 quantized-mesh 根瓦片验证成功');
+
+                viewer.camera.flyTo({
+                    destination: Cesium.Cartesian3.fromDegrees(lon, lat, 20000),
+                    duration: 2
+                });
 
             } catch(e) {
                 console.error('地形加载失败:', e);

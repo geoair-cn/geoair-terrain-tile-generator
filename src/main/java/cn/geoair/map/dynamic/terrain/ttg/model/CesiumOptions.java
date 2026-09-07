@@ -6,7 +6,7 @@ import cn.geoair.map.dynamic.terrain.ttg.cesium.CesiumTerrainGenerator.MeshPreci
  * Cesium quantized-mesh 地形瓦片生成选项
  * <p>
  * 配置 Cesium 地形瓦片生成的所有参数，包括：
- * - 缩放级别范围（minZoom, maxZoom）
+ * - 缩放级别范围（固定从 minZoom=0 到 maxZoom）
  * - 目标坐标系（当前仅支持 EPSG:4326）
  * - 输出控制（cleanOutput）
  * - 重采样方法（resampling）
@@ -20,7 +20,7 @@ import cn.geoair.map.dynamic.terrain.ttg.cesium.CesiumTerrainGenerator.MeshPreci
  *
  * // 自定义配置
  * CesiumOptions options = new CesiumOptions(
- *     0,              // minZoom: 从 zoom 0 开始
+ *     0,              // minZoom: 独立地形必须从 zoom 0 根瓦片开始
  *     15,             // maxZoom: 到 zoom 15
  *     4326,           // 目标坐标系 EPSG:4326
  *     true,           // 清空输出目录
@@ -31,7 +31,7 @@ import cn.geoair.map.dynamic.terrain.ttg.cesium.CesiumTerrainGenerator.MeshPreci
  * </pre>
  * <p>
  * 缩放级别说明：
- * - zoom 0: 全球 1 个瓦片
+ * - zoom 0: EPSG:4326 下全球 2 个根瓦片
  * - zoom 5: 约 1024 个瓦片
  * - zoom 10: 约 100 万个瓦片
  * - zoom 15: 约 10 亿个瓦片（不建议直接生成）
@@ -44,7 +44,8 @@ import cn.geoair.map.dynamic.terrain.ttg.cesium.CesiumTerrainGenerator.MeshPreci
 public class CesiumOptions {
     /**
      * 最小缩放级别（金字塔顶层）
-     * 通常设为 0（全球范围），范围：0-30
+     * 独立 terrain 服务固定为 0。Cesium 从第 0 级根瓦片开始遍历，
+     * 若没有根瓦片，子级瓦片不会被请求。
      */
     private final int minZoom;
 
@@ -101,7 +102,7 @@ public class CesiumOptions {
     /**
      * 创建 Cesium 地形生成选项
      *
-     * @param minZoom           最小缩放级别（0-30）
+     * @param minZoom           最小缩放级别（独立服务必须为 0）
      * @param maxZoom           最大缩放级别（0-30，必须 >= minZoom）
      * @param targetEpsg        目标坐标系（当前仅支持 4326）
      * @param cleanOutput       是否清空输出目录
@@ -113,9 +114,9 @@ public class CesiumOptions {
     public CesiumOptions(int minZoom, int maxZoom, int targetEpsg, boolean cleanOutput,
                          int resampling, String reprojectFileName, MeshPrecision precision) {
         // 参数验证
-        if (minZoom < 0 || maxZoom < minZoom || maxZoom > 30) {
+        if (minZoom != 0 || maxZoom > 30) {
             throw new IllegalArgumentException(
-                    String.format("缩放级别必须满足 0 <= minZoom <= maxZoom <= 30，当前: minZoom=%d, maxZoom=%d",
+                    String.format("独立 Cesium 地形必须从第 0 级根瓦片开始，且 maxZoom 必须在 0-30，当前: minZoom=%d, maxZoom=%d",
                             minZoom, maxZoom));
         }
         if (targetEpsg != 4326) {
@@ -133,6 +134,7 @@ public class CesiumOptions {
 
     /**
      * 获取最小缩放级别
+     *
      * @return 最小缩放级别
      */
     public int minZoom() {
@@ -141,6 +143,7 @@ public class CesiumOptions {
 
     /**
      * 获取最大缩放级别
+     *
      * @return 最大缩放级别
      */
     public int maxZoom() {
@@ -149,6 +152,7 @@ public class CesiumOptions {
 
     /**
      * 获取目标坐标系 EPSG 编码
+     *
      * @return EPSG 编码（当前固定返回 4326）
      */
     public int targetEpsg() {
@@ -157,6 +161,7 @@ public class CesiumOptions {
 
     /**
      * 是否清空输出目录
+     *
      * @return true 表示清空
      */
     public boolean cleanOutput() {
@@ -165,6 +170,7 @@ public class CesiumOptions {
 
     /**
      * 获取重采样方法
+     *
      * @return 重采样方法索引
      */
     public int resampling() {
@@ -173,6 +179,7 @@ public class CesiumOptions {
 
     /**
      * 获取重投影文件名
+     *
      * @return 文件名，"UUID" 表示自动生成
      */
     public String reprojectFileName() {
@@ -181,6 +188,7 @@ public class CesiumOptions {
 
     /**
      * 获取网格精度
+     *
      * @return MeshPrecision 枚举值
      */
     public MeshPrecision precision() {
@@ -197,20 +205,19 @@ public class CesiumOptions {
      * <p>
      * 使用示例：
      * <pre>
-     * // 生成 zoom 0-12 的地形瓦片
+     * // 生成 zoom 0-12 的地形瓦片（第一个参数必须为 0）
      * CesiumOptions options = CesiumOptions.defaultCesiumOptions(0, 12, 4326, "dem_4326");
      * CesiumTerrainGenerator.generate("input.tif", "output_dir", options);
      * </pre>
      *
-     * @param minZoom           最小缩放级别
      * @param maxZoom           最大缩放级别
      * @param epsg              目标坐标系（必须为 4326）
      * @param reProjectFileName 重投影文件名（"UUID" 表示自动生成）
      * @return 默认配置的 CesiumOptions 对象
      */
-    public static CesiumOptions defaultCesiumOptions(int minZoom, int maxZoom, int epsg, String reProjectFileName) {
+    public static CesiumOptions defaultCesiumOptions(int maxZoom, int epsg, String reProjectFileName) {
         CesiumOptions options = new CesiumOptions(
-                minZoom,
+                0,
                 maxZoom,
                 epsg,
                 true,                    // cleanOutput: 清空输出目录

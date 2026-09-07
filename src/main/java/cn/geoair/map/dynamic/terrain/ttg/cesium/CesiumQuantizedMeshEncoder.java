@@ -110,9 +110,12 @@ final class CesiumQuantizedMeshEncoder {
         ByteArrayOutputStream raw = new ByteArrayOutputStream();
         writeHeader(raw, mesh.vertices, bounds, minHeight, maxHeight);
         writeIntLE(raw, mesh.vertices.size());
-        for (Vertex vertex : mesh.vertices) writeUShortLE(raw, vertex.u);
-        for (Vertex vertex : mesh.vertices) writeUShortLE(raw, vertex.v);
-        for (Vertex vertex : mesh.vertices) writeUShortLE(raw, vertex.height);
+        // quantized-mesh 顶点属性不是直接写入量化值，而是分别进行
+        // ZigZag Delta 编码。Cesium 读取时会无条件执行对应的解码；若这里
+        // 直接写原值，高程和坐标都会被错误还原。
+        writeZigZagDelta(raw, mesh.vertices, Coordinate.U);
+        writeZigZagDelta(raw, mesh.vertices, Coordinate.V);
+        writeZigZagDelta(raw, mesh.vertices, Coordinate.HEIGHT);
 
         boolean use32Bit = mesh.vertices.size() > 65536;
         padToIndexAlignment(raw, use32Bit ? 4 : 2);
@@ -378,8 +381,47 @@ final class CesiumQuantizedMeshEncoder {
         else writeUShortLE(out, value);
     }
 
+    /**
+     * 按 quantized-mesh 规范写入一个顶点属性数组。
+     * 每个量化值与前一顶点同一属性的差值先 ZigZag 编码，再以 uint16 小端写入。
+     */
+    private static void writeZigZagDelta(ByteArrayOutputStream out, List<Vertex> vertices,
+                                          Coordinate coordinate) {
+        int previous = 0;
+        for (Vertex vertex : vertices) {
+            int value = coordinate.valueOf(vertex);
+            int delta = value - previous;
+            int zigZag = (delta << 1) ^ (delta >> 31);
+            writeUShortLE(out, zigZag);
+            previous = value;
+        }
+    }
+
     private static int clamp(long value) {
         return (int) Math.max(0, Math.min(QUANTIZATION_MAX, value));
+    }
+
+    private enum Coordinate {
+        U {
+            @Override
+            int valueOf(Vertex vertex) {
+                return vertex.u;
+            }
+        },
+        V {
+            @Override
+            int valueOf(Vertex vertex) {
+                return vertex.v;
+            }
+        },
+        HEIGHT {
+            @Override
+            int valueOf(Vertex vertex) {
+                return vertex.height;
+            }
+        };
+
+        abstract int valueOf(Vertex vertex);
     }
 
     private static double[] toEcef(double longitudeDegrees, double latitudeDegrees, double height) {
