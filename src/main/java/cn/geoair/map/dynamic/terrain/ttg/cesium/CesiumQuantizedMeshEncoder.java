@@ -24,7 +24,7 @@ import java.util.zip.GZIPOutputStream;
  * 6. 写入顶点数据（u, v, height）
  * 7. 写入三角网索引（high-water-mark 编码）
  * 8. 写入边缘索引（用于瓦片接缝处理）
- * 9. 使用 gzip 压缩整个数据
+ * 9. 按配置选择是否 gzip 压缩整个数据
  * <p>
  * 文件格式概览：
  * +-------------------+
@@ -46,7 +46,7 @@ import java.util.zip.GZIPOutputStream;
  * +-------------------+
  * | Edge Indices      |  4个边缘的索引
  * +-------------------+
- * | GZIP Compressed   |  整个数据使用gzip压缩
+ * | Optional GZIP     |  可选 gzip 压缩整个数据
  * +-------------------+
  */
 final class CesiumQuantizedMeshEncoder {
@@ -80,7 +80,7 @@ final class CesiumQuantizedMeshEncoder {
      * 5. 使用 high-water-mark 编码重排顶点（优化压缩率）
      * 6. 写入文件头和顶点数据
      * 7. 写入三角网索引和边缘索引
-     * 8. 使用 gzip 压缩
+     * 8. 按配置选择是否 gzip 压缩
      *
      * @param heights 高程网格 [row][column]，无效值为 Float.NaN
      * @param bounds  瓦片的地理范围（经纬度）
@@ -88,6 +88,15 @@ final class CesiumQuantizedMeshEncoder {
      * @throws IOException 编码过程中的 IO 错误
      */
     static byte[] encode(float[][] heights, Bounds bounds) throws IOException {
+        return encode(heights, bounds, false);
+    }
+
+    /**
+     * 将高程网格编码为 quantized-mesh 格式，可选择 gzip 压缩输出。
+     *
+     * @param gzip true 时压缩整个瓦片；false 时返回原始 quantized-mesh 二进制
+     */
+    static byte[] encode(float[][] heights, Bounds bounds, boolean gzip) throws IOException {
         int size = heights.length;
         if (size < 2 || heights[0].length != size) {
             throw new IllegalArgumentException("Height grid must be at least 2x2");
@@ -122,11 +131,14 @@ final class CesiumQuantizedMeshEncoder {
         writeTriangleIndices(raw, mesh.triangles, use32Bit);
         writeEdgeIndices(raw, edgeIndices(size, mesh.remap), use32Bit);
 
-        ByteArrayOutputStream gzip = new ByteArrayOutputStream(raw.size());
-        try (GZIPOutputStream stream = new GZIPOutputStream(gzip)) {
+        if (!gzip) {
+            return raw.toByteArray();
+        }
+        ByteArrayOutputStream compressed = new ByteArrayOutputStream(raw.size());
+        try (GZIPOutputStream stream = new GZIPOutputStream(compressed)) {
             stream.write(raw.toByteArray());
         }
-        return gzip.toByteArray();
+        return compressed.toByteArray();
     }
 
     /**

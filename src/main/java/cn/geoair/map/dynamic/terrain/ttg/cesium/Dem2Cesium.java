@@ -16,11 +16,12 @@ import cn.geoair.map.dynamic.terrain.ttg.cesium.model.CesiumOptions;
  *   <li>resampling — 重采样方法（默认 2=bilinear）</li>
  *   <li>reProjectFileName — 重投影文件名，UUID 表示自动生成（默认 UUID）</li>
  *   <li>meshPrecision — 网格精度：LOW/MEDIUM/HIGH/ULTRA（默认 MEDIUM）</li>
+ *   <li>gzip — 是否 gzip 压缩瓦片：true/false 或 1/0（默认 false）</li>
  * </ol>
  *
  * <h3>使用示例</h3>
  * <pre>
- *   Dem2Cesium input.tif output 0 12 4326 1 2 dem_4326 HIGH
+ *   Dem2Cesium input.tif output 0 12 4326 1 2 dem_4326 HIGH false
  * </pre>
  *
  * @author 张俊
@@ -31,7 +32,7 @@ public class Dem2Cesium {
         String input = args.length > 0 ? args[0] : "";
         String output = args.length > 1 ? args[1] : "";
         if (input.isEmpty() || output.isEmpty()) {
-            System.out.println("Usage: Dem2Cesium <input.tif> <output> [minZoom] [maxZoom] [epsg] [isClean] [resampling] [reProjectFileName] [meshPrecision]");
+            System.out.println("Usage: Dem2Cesium <input.tif> <output> [minZoom] [maxZoom] [epsg] [isClean] [resampling] [reProjectFileName] [meshPrecision] [gzip]");
             return;
         }
         int minZoom = args.length > 2 ? Integer.parseInt(args[2]) : 0;
@@ -43,8 +44,9 @@ public class Dem2Cesium {
         CesiumTerrainGenerator.MeshPrecision precision = args.length > 8
                 ? CesiumTerrainGenerator.MeshPrecision.valueOf(args[8].toUpperCase())
                 : CesiumTerrainGenerator.MeshPrecision.MEDIUM;
+        boolean gzip = args.length > 9 && ("true".equalsIgnoreCase(args[9]) || "1".equals(args[9]));
         CesiumOptions options = new CesiumOptions(minZoom, maxZoom, epsg, isClean == 1,
-                resampling, reProjectFileName, precision);
+                resampling, reProjectFileName, precision, gzip);
         CesiumTerrainGenerator.generate(input, output, options);
     }
 }

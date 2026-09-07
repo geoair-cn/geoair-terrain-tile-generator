@@ -230,7 +230,7 @@ public final class CesiumTerrainGenerator {
                             final int tileX = x, tileY = y;
                             tasks.add(executor.submit(new CesiumTileTask(workingPath, datasetInfo, output.toPath(),
                                     zoom, tileX, tileY, options.precision().gridSize(),
-                                    completedCount, errorCount, totalTiles)));
+                                    options.gzip(), completedCount, errorCount, totalTiles)));
                         }
                     }
                 }
@@ -545,12 +545,13 @@ public final class CesiumTerrainGenerator {
         private final int x;               // 瓦片 X 坐标
         private final int y;               // 瓦片 Y 坐标（TMS 坐标系）
         private final int gridSize;        // 采样网格大小（如 65x65）
+        private final boolean gzip;              // 是否 gzip 压缩输出瓦片
         private final AtomicLong completedCount; // 完成计数器
         private final AtomicLong errorCount;     // 错误计数器
         private final long totalTiles;           // 总瓦片数（用于进度显示）
 
         CesiumTileTask(String datasetPath, DatasetInfo dataset, Path output, int zoom,
-                       int x, int y, int gridSize,
+                       int x, int y, int gridSize, boolean gzip,
                        AtomicLong completedCount, AtomicLong errorCount, long totalTiles) {
             this.datasetPath = datasetPath;
             this.dataset = dataset;
@@ -559,6 +560,7 @@ public final class CesiumTerrainGenerator {
             this.x = x;
             this.y = y;
             this.gridSize = gridSize;
+            this.gzip = gzip;
             this.completedCount = completedCount;
             this.errorCount = errorCount;
             this.totalTiles = totalTiles;
@@ -579,7 +581,7 @@ public final class CesiumTerrainGenerator {
                 float[][] heights = sample(source.GetRasterBand(1), bounds, dataset, gridSize);
 
                 // 编码为 quantized-mesh 格式
-                byte[] tile = CesiumQuantizedMeshEncoder.encode(heights, bounds);
+                byte[] tile = CesiumQuantizedMeshEncoder.encode(heights, bounds, gzip);
 
                 if (tile != null) {
                     // 构建输出路径: {output}/{z}/{x}/{y}.terrain

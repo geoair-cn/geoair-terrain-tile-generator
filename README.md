@@ -43,7 +43,7 @@ Dem2Png input.tif output [minZoom] [maxZoom] [epsg] [encoding] [isClean] [resamp
 输出 Cesium quantized-mesh 格式的 `.terrain` 文件，可直接用于 `CesiumTerrainProvider`。
 
 ```
-Dem2Cesium input.tif output [minZoom] [maxZoom] [epsg] [isClean] [resampling] [reProjectFileName] [meshPrecision]
+Dem2Cesium input.tif output [minZoom] [maxZoom] [epsg] [isClean] [resampling] [reProjectFileName] [meshPrecision] [gzip]
 ```
 
 | 参数 | 说明 |
@@ -51,6 +51,7 @@ Dem2Cesium input.tif output [minZoom] [maxZoom] [epsg] [isClean] [resampling] [r
 | `minZoom` | 必须为 `0`。独立 Cesium 地形从第 0 级根瓦片开始遍历，不能跳过根级。 |
 | `maxZoom` | 最大缩放级别，范围 0-30。 |
 | `meshPrecision` | LOW(33x33) / MEDIUM(65x65) / HIGH(129x129) / ULTRA(257x257) |
+| `gzip` | `true`/`false` 或 `1`/`0`，默认 `false`。开启后服务端必须声明 `Content-Encoding: gzip`。 |
 
 Cesium 输出固定 EPSG:4326 + TMS 瓦片方案，输入非 4326 时自动重投影。
 
@@ -62,7 +63,7 @@ Cesium 输出固定 EPSG:4326 + TMS 瓦片方案，输入非 4326 时自动重�
 Cesium.CesiumTerrainProvider.fromUrl('http://localhost:12306/outcesium')
 ```
 
-`.terrain` 文件已经在生成阶段 gzip 压缩。部署它们的 HTTP 服务必须正确返回以下响应头，否则浏览器不会解压二进制瓦片：
+默认生成的 `.terrain` 是未压缩的原始 quantized-mesh，可由普通静态文件服务直接提供。只有 `gzip=true` 时，部署它们的 HTTP 服务才必须正确返回以下响应头，否则浏览器不会解压二进制瓦片：
 
 ```
 Access-Control-Allow-Origin: *

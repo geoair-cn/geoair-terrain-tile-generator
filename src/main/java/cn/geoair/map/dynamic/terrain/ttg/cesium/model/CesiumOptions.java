@@ -12,6 +12,7 @@ import cn.geoair.map.dynamic.terrain.ttg.cesium.CesiumTerrainGenerator.MeshPreci
  * - 重采样方法（resampling）
  * - 重投影文件名（reprojectFileName）
  * - 网格精度（precision）
+ * - 是否 gzip 压缩输出瓦片（gzip，默认 false）
  * <p>
  * 使用示例：
  * <pre>
@@ -26,7 +27,8 @@ import cn.geoair.map.dynamic.terrain.ttg.cesium.CesiumTerrainGenerator.MeshPreci
  *     true,           // 清空输出目录
  *     2,              // 重采样方法：bilinear
  *     "terrain_4326", // 重投影文件名
- *     MeshPrecision.HIGH  // 高精度网格 129x129
+ *     MeshPrecision.HIGH, // 高精度网格 129x129
+ *     false           // 不压缩，适合普通静态文件服务
  * );
  * </pre>
  * <p>
@@ -100,6 +102,13 @@ public class CesiumOptions {
     private final MeshPrecision precision;
 
     /**
+     * 是否将整个 quantized-mesh 二进制瓦片 gzip 压缩。
+     * 默认 false，关闭时可由普通静态文件服务直接提供；开启时服务端必须返回
+     * {@code Content-Encoding: gzip}。
+     */
+    private final boolean gzip;
+
+    /**
      * 创建 Cesium 地形生成选项
      *
      * @param minZoom           最小缩放级别（独立服务必须为 0）
@@ -113,6 +122,18 @@ public class CesiumOptions {
      */
     public CesiumOptions(int minZoom, int maxZoom, int targetEpsg, boolean cleanOutput,
                          int resampling, String reprojectFileName, MeshPrecision precision) {
+        this(minZoom, maxZoom, targetEpsg, cleanOutput, resampling, reprojectFileName,
+                precision, false);
+    }
+
+    /**
+     * 创建 Cesium 地形生成选项。
+     *
+     * @param gzip 是否 gzip 压缩整个输出瓦片；默认建议为 false
+     */
+    public CesiumOptions(int minZoom, int maxZoom, int targetEpsg, boolean cleanOutput,
+                         int resampling, String reprojectFileName, MeshPrecision precision,
+                         boolean gzip) {
         // 参数验证
         if (minZoom != 0 || maxZoom > 30) {
             throw new IllegalArgumentException(
@@ -130,6 +151,7 @@ public class CesiumOptions {
         this.resampling = resampling;
         this.reprojectFileName = reprojectFileName;
         this.precision = precision == null ? MeshPrecision.MEDIUM : precision;
+        this.gzip = gzip;
     }
 
     /**
@@ -196,6 +218,13 @@ public class CesiumOptions {
     }
 
     /**
+     * @return true 表示输出 gzip 压缩的 .terrain 文件
+     */
+    public boolean gzip() {
+        return gzip;
+    }
+
+    /**
      * 创建默认的 Cesium 地形生成选项
      * <p>
      * 默认配置：
@@ -223,8 +252,18 @@ public class CesiumOptions {
                 true,                    // cleanOutput: 清空输出目录
                 2,                       // resampling: bilinear 双线性插值
                 reProjectFileName,
-                MeshPrecision.MEDIUM     // precision: 65x65 网格
+                MeshPrecision.MEDIUM,    // precision: 65x65 网格
+                false                    // gzip: 默认不压缩
         );
         return options;
+    }
+
+    /**
+     * 创建默认选项，并可指定是否 gzip 压缩输出瓦片。
+     */
+    public static CesiumOptions defaultCesiumOptions(int maxZoom, int epsg,
+                                                      String reProjectFileName, boolean gzip) {
+        return new CesiumOptions(0, maxZoom, epsg, true, 2, reProjectFileName,
+                MeshPrecision.MEDIUM, gzip);
     }
 }
