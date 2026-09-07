@@ -436,7 +436,7 @@ public class PngTerrainTileGenerator {
 
         long endTime = System.currentTimeMillis();
         IoHelper.PrettyTimeResult timeResult = IoHelper.prettyTime(endTime - startTime);
-        Gir.log.info("\n\n转换完成，用时 %.2f %s。%n", timeResult.resultTime, timeResult.unit);
+        Gir.log.info("\n\n转换完成，用时 {}f {}s。%n", timeResult.resultTime, timeResult.unit);
 
         executorService.shutdown();
         executorService.awaitTermination(60, TimeUnit.SECONDS);
