@@ -219,6 +219,7 @@ public final class CesiumTerrainGenerator {
             long tileGenStart = System.currentTimeMillis();
             AtomicLong completedCount = new AtomicLong(0);
             AtomicLong errorCount = new AtomicLong(0);
+            AtomicLong skippedCount = new AtomicLong(0);  // 跳过计数（无数据）
 
             try {
                 List<Future<Void>> tasks = new ArrayList<>();
@@ -230,7 +231,7 @@ public final class CesiumTerrainGenerator {
                             final int tileX = x, tileY = y;
                             tasks.add(executor.submit(new CesiumTileTask(workingPath, datasetInfo, output.toPath(),
                                     zoom, tileX, tileY, options.precision().gridSize(),
-                                    options.gzip(), completedCount, errorCount, totalTiles)));
+                                    options.gzip(), completedCount, errorCount, skippedCount, totalTiles)));
                         }
                     }
                 }
@@ -242,8 +243,13 @@ public final class CesiumTerrainGenerator {
 
                 long tileGenTime = System.currentTimeMillis() - tileGenStart;
                 Gir.log.info("  瓦片生成完成!");
-                Gir.log.info("  成功: {} 个", completedCount.get());
-                Gir.log.info("  失败: {} 个", errorCount.get());
+                Gir.log.info("  成功生成: {} 个", completedCount.get());
+                if (skippedCount.get() > 0) {
+                    Gir.log.info("  跳过(无数据): {} 个 (瓦片完全超出DEM范围)", skippedCount.get());
+                }
+                if (errorCount.get() > 0) {
+                    Gir.log.info("  生成失败: {} 个 (编码异常)", errorCount.get());
+                }
                 Gir.log.info("  耗时: {}ms", tileGenTime);
                 if (completedCount.get() > 0) {
                     Gir.log.info("  平均每个瓦片: {}ms", String.format("%.2f", (double) tileGenTime / completedCount.get()));
@@ -254,6 +260,7 @@ public final class CesiumTerrainGenerator {
 
             // ============ 步骤8: 写入 layer.json 元数据 ============
             Gir.log.info(">> 步骤{}: 写入 layer.json 元数据", ++stepIndex);
+            // 使用原始的 available 范围（基于 DEM范围计算）
             writeLayerJson(output.toPath(), options, datasetInfo, availability);
             Gir.log.info("  layer.json 已生成: {}", output.toPath().resolve("layer.json").toAbsolutePath());
 
@@ -305,6 +312,78 @@ public final class CesiumTerrainGenerator {
     }
 
     /**
+     * 根据实际生成的文件构建瓦片可用性范围
+     * <p>
+     * 扫描输出目录，统计每个缩放级别实际生成的瓦片坐标范围。
+     * 这样 layer.json 中的 available 只包含实际存在的瓦片，
+     * 避免 Cesium 请求不存在的瓦片导致 404。
+     * <p>
+     * 目录结构：{output}/{z}/{x}/{y}.terrain
+     *
+     * @param output  输出目录
+     * @param options 生成选项
+     * @return 各缩放级别的实际瓦片范围
+     */
+    private static Map<Integer, Range> buildActualAvailability(Path output, CesiumOptions options) {
+        Map<Integer, Range> result = new LinkedHashMap<>();
+
+        for (int zoom = options.minZoom(); zoom <= options.maxZoom(); zoom++) {
+            Path zoomDir = output.resolve(Integer.toString(zoom));
+            if (!Files.exists(zoomDir) || !Files.isDirectory(zoomDir)) {
+                continue;
+            }
+
+            int minX = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE;
+            int minY = Integer.MAX_VALUE, maxY = Integer.MIN_VALUE;
+
+            // 遍历 x 目录
+            File[] xDirs = zoomDir.toFile().listFiles();
+            if (xDirs == null) continue;
+
+            for (File xDir : xDirs) {
+                if (!xDir.isDirectory()) continue;
+
+                int x;
+                try {
+                    x = Integer.parseInt(xDir.getName());
+                } catch (NumberFormatException e) {
+                    continue;
+                }
+
+                // 遍历 y 文件
+                File[] yFiles = xDir.listFiles();
+                if (yFiles == null) continue;
+
+                for (File yFile : yFiles) {
+                    String fileName = yFile.getName();
+                    if (!fileName.endsWith(".terrain")) continue;
+
+                    int y;
+                    try {
+                        y = Integer.parseInt(fileName.replace(".terrain", ""));
+                    } catch (NumberFormatException e) {
+                        continue;
+                    }
+
+                    minX = Math.min(minX, x);
+                    maxX = Math.max(maxX, x);
+                    minY = Math.min(minY, y);
+                    maxY = Math.max(maxY, y);
+                }
+            }
+
+            // 只有找到有效瓦片时才添加
+            if (minX != Integer.MAX_VALUE) {
+                result.put(zoom, new Range(minX, minY, maxX, maxY));
+                Gir.log.info("  Zoom {}: 实际瓦片范围 X=[{}, {}] Y=[{}, {}]",
+                        zoom, minX, maxX, minY, maxY);
+            }
+        }
+
+        return result;
+    }
+
+    /**
      * 写入 layer.json 元数据文件
      * <p>
      * layer.json 是 Cesium 地形服务的核心元数据文件，描述了：
@@ -331,7 +410,7 @@ public final class CesiumTerrainGenerator {
         // 基本格式信息
         root.put("format", "quantized-mesh-1.0");  // Cesium quantized-mesh 格式标识
         root.put("version", "1.0.0");               // 格式版本
-        root.put("scheme", "tms");                   // TMS 坐标系（Y轴从南向北）
+        root.put("scheme", "tms");                   // TMS 坐标系（标准规范，兼容性最好）
         root.put("projection", "EPSG:4326");         // WGS84 坐标系
 
         // 缩放级别范围
@@ -344,7 +423,7 @@ public final class CesiumTerrainGenerator {
         // 数据地理范围 [west, south, east, north]
         root.putArray("bounds").add(info.west()).add(info.south()).add(info.east()).add(info.north());
 
-        // 各缩放级别的瓦片范围
+        // 各缩放级别的瓦片范围（使用 TMS 坐标）
         ArrayNode available = root.putArray("available");
         for (Range range : availability.values()) {
             ArrayNode level = available.addArray();
@@ -361,6 +440,7 @@ public final class CesiumTerrainGenerator {
         Gir.log.info("  layer.json 内容概要:");
         Gir.log.info("    格式: quantized-mesh-1.0");
         Gir.log.info("    坐标系: EPSG:4326");
+        Gir.log.info("    方案: tms (Tile Map Service)");
         Gir.log.info("    缩放级别: {} - {}", options.minZoom(), options.maxZoom());
         Gir.log.info("    数据范围: [{}, {}, {}, {}]",
                 info.west(), info.south(), info.east(), info.north());
@@ -548,11 +628,12 @@ public final class CesiumTerrainGenerator {
         private final boolean gzip;              // 是否 gzip 压缩输出瓦片
         private final AtomicLong completedCount; // 完成计数器
         private final AtomicLong errorCount;     // 错误计数器
+        private final AtomicLong skippedCount;   // 跳过计数器（无数据）
         private final long totalTiles;           // 总瓦片数（用于进度显示）
 
         CesiumTileTask(String datasetPath, DatasetInfo dataset, Path output, int zoom,
                        int x, int y, int gridSize, boolean gzip,
-                       AtomicLong completedCount, AtomicLong errorCount, long totalTiles) {
+                       AtomicLong completedCount, AtomicLong errorCount, AtomicLong skippedCount, long totalTiles) {
             this.datasetPath = datasetPath;
             this.dataset = dataset;
             this.output = output;
@@ -563,6 +644,7 @@ public final class CesiumTerrainGenerator {
             this.gzip = gzip;
             this.completedCount = completedCount;
             this.errorCount = errorCount;
+            this.skippedCount = skippedCount;
             this.totalTiles = totalTiles;
         }
 
@@ -574,7 +656,7 @@ public final class CesiumTerrainGenerator {
                 throw new IllegalStateException("工作线程无法打开 DEM: " + datasetPath);
             }
             try {
-                // 计算瓦片地理范围
+                // 计算瓦片地理范围（使用 TMS Y 坐标）
                 Bounds bounds = CesiumTileMath.bounds(zoom, x, y);
 
                 // 从 DEM 中采样高程数据
@@ -583,28 +665,29 @@ public final class CesiumTerrainGenerator {
                 // 编码为 quantized-mesh 格式
                 byte[] tile = CesiumQuantizedMeshEncoder.encode(heights, bounds, gzip);
 
-                if (tile != null) {
-                    // 构建输出路径: {output}/{z}/{x}/{y}.terrain
-                    Path target = output.resolve(Integer.toString(zoom))
-                            .resolve(Integer.toString(x))
-                            .resolve(y + ".terrain");
-                    Files.createDirectories(target.getParent());
-                    Files.write(target, tile);
+                // 如果编码返回 null（全NaN），生成一个空的但合法的 terrain 文件
+                if (tile == null) {
+                    tile = CesiumQuantizedMeshEncoder.createEmptyTile(bounds, gzip);
+                    skippedCount.incrementAndGet();
+                }
 
-                    // 更新进度
-                    long completed = completedCount.incrementAndGet();
-                    if (completed % 100 == 0 || completed == totalTiles) {
-                        Gir.log.info("  进度: {}/{} ({}%)",
-                                completed, totalTiles,
-                                String.format("%.1f", (double) completed / totalTiles * 100));
-                    }
-                } else {
-                    // 高程数据无效（全为 NaN）
-                    errorCount.incrementAndGet();
+                // 写入文件（无论是否有数据，都生成文件）
+                Path target = output.resolve(Integer.toString(zoom))
+                        .resolve(Integer.toString(x))
+                        .resolve(y + ".terrain");
+                Files.createDirectories(target.getParent());
+                Files.write(target, tile);
+
+                // 更新进度
+                long completed = completedCount.incrementAndGet();
+                if (completed % 100 == 0 || completed == totalTiles) {
+                    Gir.log.info("  进度: {}/{} ({}%)",
+                            completed, totalTiles,
+                            String.format("%.1f", (double) completed / totalTiles * 100));
                 }
             } catch (Exception e) {
                 errorCount.incrementAndGet();
-                Gir.log.warn("  瓦片生成失败 z={} x={} y={}: {}", zoom, x, y, e.getMessage());
+                Gir.log.warn("  瓦片生成异常 z={}/x={}/y={}: {}", zoom, x, y, e.getMessage());
             } finally {
                 source.delete();
             }

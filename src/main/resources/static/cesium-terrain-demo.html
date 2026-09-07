@@ -2,164 +2,650 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>Cesium 三维地形 Demo</title>
+    <title>Cesium XYZ + Quantized Mesh 地形测试</title>
+
     <script src="./Cesium/Cesium.js"></script>
     <link href="./Cesium/Widgets/widgets.css" rel="stylesheet">
+
     <style>
-        * { margin:0; padding:0; box-sizing:border-box; }
-        html,body,#cesiumContainer { width:100%; height:100%; overflow:hidden; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html,
+        body,
+        #cesiumContainer {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
         #toolbar {
-            position:absolute; top:10px; left:10px; z-index:1000;
-            background:rgba(0,0,0,0.82); color:#fff; padding:14px 18px;
-            border-radius:8px; font:13px/1.6 "Microsoft YaHei",sans-serif; max-width:420px;
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+
+            width: 460px;
+            max-height: calc(100vh - 20px);
+            overflow-y: auto;
+
+            background: rgba(0, 0, 0, 0.86);
+            color: #fff;
+
+            padding: 14px 18px;
+            border-radius: 8px;
+
+            font: 13px/1.6 "Microsoft YaHei", sans-serif;
         }
-        #toolbar h3 { margin:0 0 8px; color:#6cf; }
-        #toolbar label { display:block; margin:6px 0 2px; color:#aaa; font-size:12px; }
-        #toolbar input, #toolbar select {
-            width:100%; padding:5px 8px; margin-bottom:2px; border:1px solid #555;
-            border-radius:4px; background:#1a1a2e; color:#eee; font-size:12px;
+
+        #toolbar h3 {
+            margin: 0 0 8px;
+            color: #66ccff;
         }
+
+        #toolbar label {
+            display: block;
+            margin: 8px 0 2px;
+            color: #aaa;
+            font-size: 12px;
+        }
+
+        #toolbar input {
+            width: 100%;
+            padding: 6px 8px;
+            margin-bottom: 2px;
+
+            border: 1px solid #555;
+            border-radius: 4px;
+
+            background: #1a1a2e;
+            color: #eee;
+
+            font-size: 12px;
+        }
+
         #toolbar button {
-            margin:8px 4px 0 0; padding:6px 14px; border:none; border-radius:4px;
-            background:#3b82f6; color:#fff; cursor:pointer; font-weight:bold; font-size:13px;
+            margin: 8px 4px 0 0;
+            padding: 6px 14px;
+
+            border: none;
+            border-radius: 4px;
+
+            background: #3b82f6;
+            color: #fff;
+
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 13px;
         }
-        #toolbar button.danger { background:#dc2626; }
-        #toolbar button:hover { filter:brightness(1.2); }
+
+        #toolbar button.green {
+            background: #16a34a;
+        }
+
+        #toolbar button.danger {
+            background: #dc2626;
+        }
+
+        #toolbar button:hover {
+            filter: brightness(1.2);
+        }
+
         #status {
-            margin-top:8px; padding:6px 8px; font-size:11px; color:#aaa;
-            background:rgba(255,255,255,0.05); border-radius:4px;
-            min-height:22px; max-height:120px; overflow-y:auto;
+            margin-top: 10px;
+            padding: 8px;
+
+            font-size: 11px;
+            color: #ccc;
+
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 4px;
+
+            min-height: 30px;
+            max-height: 160px;
+
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
         }
     </style>
 </head>
+
 <body>
-    <div id="cesiumContainer"></div>
-    <div id="toolbar">
-        <h3>🌍 Cesium 三维地形</h3>
-        <label>自定义 XYZ 底图 URL</label>
-        <input id="xyzUrl" value="http://devs.gishub.com.cn:9098/geowebcache/gishub/xyz/arcgis/3857/{z}/{x}/{y}?zxyType=zxy&orginType=wmts"
-               placeholder="{z}/{x}/{y} 模板">
-        <label>地形服务根目录</label>
-        <input id="terrainUrl" value="http://localhost:12306/outcesium"
-               placeholder="例如：http://localhost:12306/outcesium">
-        <label>飞到 (经度, 纬度)</label>
-        <input id="centerLonLat" value="87.6, 43.8">
-        <button onclick="loadTerrain()">🔄 加载地形</button>
-        <button class="danger" onclick="removeTerrain()">✕ 移除地形</button>
-        <div id="status">正在初始化...</div>
+
+<div id="cesiumContainer"></div>
+
+<div id="toolbar">
+
+    <h3>🌍 Cesium XYZ + 三维地形</h3>
+
+    <label>XYZ 底图 URL（EPSG:3857）</label>
+
+    <input
+            id="xyzUrl"
+            value="http://devs.gishub.com.cn:9098/geowebcache/gishub/xyz/arcgis/3857/{z}/{x}/{y}?zxyType=zxy&amp;orginType=wmts"
+    >
+
+    <label>Quantized Mesh 地形根目录</label>
+
+    <input
+            id="terrainUrl"
+            value="http://localhost:12306/outcesium"
+    >
+
+    <label>飞到位置（经度,纬度）</label>
+
+    <input
+            id="centerLonLat"
+            value="87.6,43.8"
+    >
+
+    <button class="green" onclick="reloadImagery()">
+        🗺 加载 XYZ
+    </button>
+
+    <button onclick="loadTerrain()">
+        ⛰ 加载地形
+    </button>
+
+    <button class="danger" onclick="removeTerrain()">
+        ✕ 移除地形
+    </button>
+
+    <div id="status">
+        正在初始化...
     </div>
 
-    <script>
-        var viewer;
+</div>
 
-        // ====== 初始化地球 ======
-        viewer = new Cesium.Viewer('cesiumContainer', {
+
+<script>
+
+    var viewer;
+    var currentImageryLayer = null;
+
+    // ================================================================
+    // 日志
+    // ================================================================
+
+    function logStatus(message) {
+
+        console.log(message);
+
+        var status = document.getElementById("status");
+
+        status.textContent =
+            new Date().toLocaleTimeString() +
+            "  " +
+            message +
+            "\n" +
+            status.textContent;
+    }
+
+
+    // ================================================================
+    // 1. 初始化 Cesium
+    //
+    // 重点：
+    // 不要在 Viewer 构造函数里面直接设置 imageryProvider。
+    //
+    // 先创建一个没有默认底图的 Viewer，
+    // 然后通过 imageryLayers.addImageryProvider 手动加载。
+    //
+    // 这种写法兼容性最好，尤其适合你这个定制 Cesium。
+    // ================================================================
+
+    function initCesium() {
+
+        viewer = new Cesium.Viewer("cesiumContainer", {
+
             animation: false,
             timeline: false,
+
             baseLayerPicker: false,
+
             fullscreenButton: false,
             geocoder: false,
             homeButton: false,
+
             infoBox: false,
+
             sceneModePicker: false,
+
             selectionIndicator: false,
+
             navigationHelpButton: false,
+
             navigationInstructionsInitiallyVisible: false,
-            // 默认底图：自定义 XYZ 服务
-            imageryProvider: createXyzImageryProvider()
+
+            // 老版本 Cesium
+            imageryProvider: false
+
         });
 
-        // 去掉默认 ion 地形
-        viewer.scene.terrainProvider = new Cesium.EllipsoidTerrainProvider();
 
-        document.getElementById('status').textContent = '✅ 地球就绪 — 点击"加载地形"';
-        console.log('✅ Cesium 初始化完成');
+        // ============================================================
+        // 默认使用椭球，不加载 ion terrain
+        // ============================================================
 
-        // ====== 创建自定义 XYZ 底图提供器 ======
-        function createXyzImageryProvider() {
-            var urlTemplate = document.getElementById('xyzUrl').value.trim()
-                .replace(/\{z\}/g, '{z}')
-                .replace(/\{x\}/g, '{x}')
-                .replace(/\{y\}/g, '{y}');
-            return new Cesium.UrlTemplateImageryProvider({
-                url: urlTemplate,
-                // 默认 URL 是 EPSG:3857 XYZ 服务。
-                tilingScheme: new Cesium.WebMercatorTilingScheme()
+        viewer.scene.terrainProvider =
+            new Cesium.EllipsoidTerrainProvider();
+
+
+        // ============================================================
+        // 深度检测
+        // ============================================================
+
+        viewer.scene.globe.depthTestAgainstTerrain = true;
+
+
+        // ============================================================
+        // 手动加载 XYZ
+        // ============================================================
+
+        reloadImagery();
+
+
+        // ============================================================
+        // 初始飞到新疆
+        // ============================================================
+
+        viewer.camera.setView({
+
+            destination:
+                Cesium.Cartesian3.fromDegrees(
+                    87.6,
+                    43.8,
+                    3000000
+                )
+
+        });
+
+
+        logStatus("✅ Cesium 初始化完成");
+
+    }
+
+
+    // ================================================================
+    // 2. 创建 XYZ 底图
+    //
+    // 你的底图：
+    //
+    // EPSG:3857
+    // XYZ
+    //
+    // 所以必须：
+    //
+    // WebMercatorTilingScheme
+    //
+    // 注意：
+    //
+    // {y}
+    //
+    // Cesium WebMercatorTilingScheme 本身就是：
+    //
+    // 左上角原点
+    // Y 向下
+    //
+    // 所以标准 XYZ 不需要做 Y 翻转。
+    // ================================================================
+
+    function createXyzImageryProvider() {
+
+        var url =
+            document
+                .getElementById("xyzUrl")
+                .value
+                .trim();
+
+        if (!url) {
+            throw new Error("XYZ URL 不能为空");
+        }
+
+
+        console.log(
+            "创建 XYZ Provider：",
+            url
+        );
+
+
+        var provider =
+            new Cesium.UrlTemplateImageryProvider({
+
+                url: url,
+
+                // ================================================
+                // 你的 XYZ 是 EPSG:3857
+                // ================================================
+
+                tilingScheme:
+                    new Cesium.WebMercatorTilingScheme(),
+
+                tileWidth: 256,
+
+                tileHeight: 256,
+
+                minimumLevel: 0,
+
+                // 根据实际服务调整
+                maximumLevel: 20
+
             });
-        }
 
-        // ====== 切换底图 ======
-        function reloadImagery() {
-            viewer.imageryLayers.removeAll();
-            viewer.imageryLayers.addImageryProvider(createXyzImageryProvider());
-        }
 
-        async function loadTerrain() {
-            var st = document.getElementById('status');
-            var url = document.getElementById('terrainUrl').value.trim()
-                .replace(/\/layer\.json(?:\?.*)?$/i, '')
-                .replace(/\/+$/, '');
-            var ll = document.getElementById('centerLonLat').value.split(',');
-            var lon = parseFloat(ll[0]) || 87.6;
-            var lat = parseFloat(ll[1]) || 43.8;
+        // ========================================================
+        // XYZ 错误监听
+        // ========================================================
 
-            if (!url) {
-                st.textContent = '❌ 请输入地形服务地址';
-                return;
-            }
+        if (provider.errorEvent) {
 
-            st.textContent = '⏳ 加载地形...';
-            console.log('开始加载地形, URL:', url);
+            provider.errorEvent.addEventListener(
+                function (error) {
 
-            try {
-                // fromUrl 接收地形服务根目录，并异步读取 {root}/layer.json。
-                var tp = await Cesium.CesiumTerrainProvider.fromUrl(url, {
-                    requestVertexNormals: false,
-                    requestWaterMask: false,
-                    requestMetadata: false
-                });
-                tp.errorEvent.addEventListener(function (error) {
-                    console.error('地形瓦片请求失败:', error);
-                    st.textContent = '❌ 地形瓦片请求失败: ' + error.message;
-                });
+                    console.error(
+                        "XYZ 瓦片加载失败：",
+                        error
+                    );
 
-                // fromUrl 成功表示 layer.json 已通过校验。
-                viewer.scene.terrainProvider = tp;
+                    var msg =
+                        "❌ XYZ 请求失败";
 
-                // 再直接请求一个已声明可用的根瓦片，确保 .terrain 的网络传输、
-                // gzip 解压和 quantized-mesh 二进制解析均可用。
-                var verified = false;
-                for (var rootX = 0; rootX < 2 && !verified; rootX++) {
-                    if (tp.getTileDataAvailable(rootX, 0, 0)) {
-                        await tp.requestTileGeometry(rootX, 0, 0);
-                        verified = true;
+                    if (error) {
+
+                        if (error.message) {
+                            msg += "\n" + error.message;
+                        }
+
+                        if (error.x !== undefined) {
+
+                            msg +=
+                                "\nlevel=" +
+                                error.level +
+                                " x=" +
+                                error.x +
+                                " y=" +
+                                error.y;
+
+                        }
+
                     }
-                }
-                if (!verified) {
-                    throw new Error('layer.json 未声明任何第 0 级根瓦片');
-                }
-                st.textContent = '✅ layer.json 与根瓦片均验证成功';
-                console.log('✅ layer.json 与 quantized-mesh 根瓦片验证成功');
 
-                viewer.camera.flyTo({
-                    destination: Cesium.Cartesian3.fromDegrees(lon, lat, 20000),
-                    duration: 2
+                    logStatus(msg);
+
+                }
+            );
+
+        }
+
+
+        return provider;
+
+    }
+
+
+    // ================================================================
+    // 3. 加载 / 重新加载 XYZ
+    // ================================================================
+
+    function reloadImagery() {
+
+        if (!viewer) {
+            return;
+        }
+
+        try {
+
+            logStatus(
+                "⏳ 开始加载 XYZ..."
+            );
+
+
+            // ========================================================
+            // 清空所有影像图层
+            // ========================================================
+
+            viewer.imageryLayers.removeAll();
+
+
+            // ========================================================
+            // 创建 Provider
+            // ========================================================
+
+            var provider =
+                createXyzImageryProvider();
+
+
+            // ========================================================
+            // 真正加入 Cesium
+            //
+            // 不从 Viewer 构造函数传入。
+            // ========================================================
+
+            currentImageryLayer =
+                viewer.imageryLayers
+                    .addImageryProvider(
+                        provider
+                    );
+
+
+            currentImageryLayer.show = true;
+
+            currentImageryLayer.alpha = 1.0;
+
+
+            logStatus(
+                "✅ XYZ Provider 已加入 imageryLayers"
+            );
+
+
+        } catch (e) {
+
+            console.error(
+                "XYZ 加载失败：",
+                e
+            );
+
+            logStatus(
+                "❌ XYZ 加载失败：\n" +
+                e.message
+            );
+
+        }
+
+    }
+
+
+    // ================================================================
+    // 4. 加载 Quantized Mesh 地形
+    // ================================================================
+
+    async function loadTerrain() {
+
+        var st = document.getElementById('status');
+
+        var url = document.getElementById('terrainUrl')
+            .value
+            .trim()
+            .replace(/\/layer\.json(?:\?.*)?$/i, '')
+            .replace(/\/+$/, '');
+
+        var ll = document
+            .getElementById('centerLonLat')
+            .value
+            .split(',');
+
+        var lon = parseFloat(ll[0]) || 87.6;
+        var lat = parseFloat(ll[1]) || 43.8;
+
+        if (!url) {
+            st.textContent = '❌ 请输入地形服务地址';
+            return;
+        }
+
+        st.textContent = '⏳ 正在加载地形...';
+
+        try {
+
+            var tp;
+
+            if (Cesium.CesiumTerrainProvider.fromUrl) {
+
+                tp = await Cesium.CesiumTerrainProvider.fromUrl(
+                    url,
+                    {
+                        requestVertexNormals: false,
+                        requestWaterMask: false,
+                        requestMetadata: false
+                    }
+                );
+
+            } else {
+
+                tp = new Cesium.CesiumTerrainProvider({
+                    url: url,
+                    requestVertexNormals: false,
+                    requestWaterMask: false
                 });
 
-            } catch(e) {
-                console.error('地形加载失败:', e);
-                st.textContent = '❌ 加载失败: ' + e.message;
-                viewer.scene.terrainProvider = new Cesium.EllipsoidTerrainProvider();
+                if (tp.readyPromise) {
+                    await tp.readyPromise;
+                }
             }
-        }
 
-        function removeTerrain() {
-            viewer.scene.terrainProvider = new Cesium.EllipsoidTerrainProvider();
-            document.getElementById('status').textContent = '已移除自定义地形';
-        }
+            // =====================================================
+            // 地形异常
+            // =====================================================
 
-        // 底图 URL 修改后重新加载
-        document.getElementById('xyzUrl').addEventListener('change', reloadImagery);
-    </script>
+            var terrainErrorCount = 0;
+
+            tp.errorEvent.addEventListener(function (error) {
+
+                terrainErrorCount++;
+
+                console.warn(
+                    '[Terrain 404]',
+                    'level=' + error.level,
+                    'x=' + error.x,
+                    'y=' + error.y,
+                    error.message
+                );
+
+                // 不重试缺失瓦片
+                error.retry = false;
+
+                // 防止大量 404 不断操作 DOM 把浏览器拖死
+                if (terrainErrorCount <= 5) {
+
+                    st.textContent =
+                        '⚠️ 地形已加载，但存在缺失瓦片\n' +
+                        'Level: ' + error.level +
+                        '\nX: ' + error.x +
+                        '\nY: ' + error.y +
+                        '\n错误次数: ' + terrainErrorCount;
+
+                } else if (terrainErrorCount === 6) {
+
+                    st.textContent =
+                        '⚠️ 地形存在多个缺失瓦片，已停止输出重复错误。\n' +
+                        '请查看浏览器 Console。';
+
+                }
+
+            });
+
+            // =====================================================
+            // 设置 Provider
+            // =====================================================
+
+            viewer.scene.terrainProvider = tp;
+
+            st.textContent =
+                '✅ 地形 Provider 加载成功\n' +
+                '正在按 layer.json 的 available 范围加载瓦片';
+
+            // =====================================================
+            // 飞到新疆
+            // =====================================================
+
+            viewer.camera.flyTo({
+
+                destination:
+                    Cesium.Cartesian3.fromDegrees(
+                        lon,
+                        lat,
+                        500000
+                    ),
+
+                orientation: {
+                    heading: 0,
+                    pitch: Cesium.Math.toRadians(-45),
+                    roll: 0
+                },
+
+                duration: 2
+            });
+
+        } catch (e) {
+
+            console.error('地形 Provider 加载失败:', e);
+
+            st.textContent =
+                '❌ 地形 Provider 加载失败\n' +
+                e.message;
+
+            viewer.scene.terrainProvider =
+                new Cesium.EllipsoidTerrainProvider();
+        }
+    }
+
+
+    // ================================================================
+    // 5. 移除地形
+    // ================================================================
+
+    function removeTerrain() {
+
+        viewer.scene.terrainProvider =
+            new Cesium
+                .EllipsoidTerrainProvider();
+
+
+        logStatus(
+            "✅ 已切回椭球地形"
+        );
+
+    }
+
+
+    // ================================================================
+    // 6. XYZ URL 修改时重新加载
+    // ================================================================
+
+    document
+        .getElementById(
+            "xyzUrl"
+        )
+        .addEventListener(
+            "change",
+            function () {
+
+                reloadImagery();
+
+            }
+        );
+
+
+    // ================================================================
+    // 启动
+    // ================================================================
+
+    initCesium();
+
+</script>
+
 </body>
 </html>
