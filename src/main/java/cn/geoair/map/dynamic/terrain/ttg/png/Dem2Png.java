@@ -52,6 +52,6 @@ public class Dem2Png {
 
         PngTerrainTileGenerator.Options options = new PngTerrainTileGenerator.Options(
                 minZoom, maxZoom, epsg, encoding, isClean, resampling, reProjectFileName);
-        PngTerrainTileGenerator.main(input, output, options);
+        PngTerrainTileGenerator.generate(input, output, options);
     }
 }

@@ -95,7 +95,7 @@ public class PngTerrainTileGenerator {
         /**
          * 重采样方法
          * 用于重投影和构建金字塔时的像素插值算法
-         *
+         * <p>
          * 可选值及对应含义：
          * 0 = nearest (最近邻) - 速度最快，质量最差
          * 1 = bilinear (双线性) - 平衡速度和质量的常用选择
@@ -109,40 +109,40 @@ public class PngTerrainTileGenerator {
          * 9 = med (中值)
          * 10 = q1 (第一四分位数)
          * 11 = q3 (第三四分位数)
-         *
+         * <p>
          * 建议：地形数据推荐使用 bilinear(1) 或 cubic(2) 以获得平滑效果
          */
         public int resampling;
 
         /**
          * 编码方式（地形数据 RGB 编码算法）
-         *
+         * <p>
          * "mapbox" - Mapbox 编码方式
-         *   将高程值编码为 RGB 三个通道，每个通道 8 位
-         *   优点：兼容 Mapbox 地形服务规范
-         *
+         * 将高程值编码为 RGB 三个通道，每个通道 8 位
+         * 优点：兼容 Mapbox 地形服务规范
+         * <p>
          * "terrarium" - Terrarium 编码方式
-         *   另一种地形编码方式，使用 RGB 编码
-         *   优点：在某些 GIS 工具中兼容性更好
-         *
+         * 另一种地形编码方式，使用 RGB 编码
+         * 优点：在某些 GIS 工具中兼容性更好
+         * <p>
          * 仅支持 "mapbox" 或 "terrarium"。
          */
         public String encoding;
 
         /**
          * 重投影输出文件名（不含扩展名）
-         *
+         * <p>
          * 用途：当源数据坐标系与目标坐标系(epsg)不一致时，
          * 会先进行重投影，重投影后的文件将保存为此名称
-         *
+         * <p>
          * 特殊值：
          * "UUID" 或不指定时 - 自动生成 UUID 作为文件名
          * 其他值 - 使用指定的文件名
-         *
+         * <p>
          * 示例：
          * - "新疆地形_3857" → 生成 "新疆地形_3857.tif"
          * - "UUID" → 生成 "a1b2c3d4-e5f6-7890-abcd-ef1234567890.tif"
-         *
+         * <p>
          * 注意：重投影文件会保存在输出目录的父目录中，
          * 与瓦片输出目录平级，便于重复使用
          */
@@ -151,12 +151,12 @@ public class PngTerrainTileGenerator {
         /**
          * 构造地形瓦片生成配置选项
          *
-         * @param minZoom 最小缩放级别，通常为 0
-         * @param maxZoom 最大缩放级别，建议不超过 15（根据数据量调整）
-         * @param epsg 目标坐标系 EPSG 编码，常用值：4326, 3857, 4490
-         * @param encoding 编码方式："mapbox" 或 "terrarium"
-         * @param isClean 是否清空输出目录：1=清空，0=保留
-         * @param resampling 重采样方法：0-11 对应不同算法
+         * @param minZoom           最小缩放级别，通常为 0
+         * @param maxZoom           最大缩放级别，建议不超过 15（根据数据量调整）
+         * @param epsg              目标坐标系 EPSG 编码，常用值：4326, 3857, 4490
+         * @param encoding          编码方式："mapbox" 或 "terrarium"
+         * @param isClean           是否清空输出目录：1=清空，0=保留
+         * @param resampling        重采样方法：0-11 对应不同算法
          * @param reProjectFileName 重投影文件名，使用 "UUID" 表示自动生成
          */
         public Options(int minZoom, int maxZoom, int epsg, String encoding, int isClean, int resampling, String reProjectFileName) {
@@ -169,11 +169,19 @@ public class PngTerrainTileGenerator {
             this.reProjectFileName = reProjectFileName;
         }
 
+        public static Options defaultMapBoxOptions(int minZoom, int maxZoom, int epsg, String reProjectFileName) {
+            Options options = new Options(minZoom, maxZoom, epsg, "mapbox", 1, 1, reProjectFileName);
+            return options;
+        }
+
+        public static Options defaultTerrariumOptions(int minZoom, int maxZoom, int epsg, String reProjectFileName) {
+            Options options = new Options(minZoom, maxZoom, epsg, "terrarium", 1, 1, reProjectFileName);
+            return options;
+        }
     }
 
 
-
-    public static void main(String input, String output, Options options) throws Exception {
+    public static void generate(String input, String output, Options options) throws Exception {
         long startTime = System.currentTimeMillis();
 
         int minZoom = options.minZoom;
@@ -208,12 +216,12 @@ public class PngTerrainTileGenerator {
             if (destSrs != null) {
                 try {
                     actualEpsg = Integer.parseInt(destSrs.GetAuthorityCode(null));
-                  Gir.log.info("重投影后数据实际坐标系: EPSG:" + actualEpsg);
+                    Gir.log.info("重投影后数据实际坐标系: EPSG:" + actualEpsg);
                 } catch (Exception ignored) {
-                  Gir.log.info("无法解析重投影后的坐标系，使用传入的EPSG:" + epsg);
+                    Gir.log.info("无法解析重投影后的坐标系，使用传入的EPSG:" + epsg);
                 }
             } else {
-              Gir.log.info("重投影后数据没有坐标系信息，使用传入的EPSG:" + epsg);
+                Gir.log.info("重投影后数据没有坐标系信息，使用传入的EPSG:" + epsg);
             }
         }
 
@@ -244,7 +252,7 @@ public class PngTerrainTileGenerator {
 //                    auxFile.delete();
                 }
             }
-          Gir.log.info(">> 步骤" + (++stepIndex) + ": 清空输出文件夹 - 完成");
+            Gir.log.info(">> 步骤" + (++stepIndex) + ": 清空输出文件夹 - 完成");
         }
 
         tileBoundTool = TileMath.TILE_BOUND_MAP.get(epsg);
@@ -296,7 +304,7 @@ public class PngTerrainTileGenerator {
         } else {
             projectDs = sourceDs;
             projectPath = sourceDs.GetDescription();
-          Gir.log.info(">> 步骤" + (++stepIndex) + ": 源文件已是 EPSG:" + epsg + "，无需重投影");
+            Gir.log.info(">> 步骤" + (++stepIndex) + ": 源文件已是 EPSG:" + epsg + "，无需重投影");
         }
         sourceDs = null;
 
@@ -307,7 +315,7 @@ public class PngTerrainTileGenerator {
             String ovrPath = projectPath + ".ovr";
             File ovrFile = new File(ovrPath);
             if (ovrFile.exists()) {
-              Gir.log.info("   金字塔文件位置: " + ovrPath);
+                Gir.log.info("   金字塔文件位置: " + ovrPath);
             }
         }
 
@@ -382,39 +390,39 @@ public class PngTerrainTileGenerator {
                     int finalTz = tz, finalJ = j, finalI = i;
 
                     // Mapbox / Terrarium：沿用原有 geoQuery 逻辑
-                        double[] tileBound = TileMath.tileEnvelope(tz, j, i, BUFFER, destEpsg);
-                        GeoQueryResult result = geoQuery(overviewInfo, tileBound[0], tileBound[1], tileBound[2], tileBound[3]);
+                    double[] tileBound = TileMath.tileEnvelope(tz, j, i, BUFFER, destEpsg);
+                    GeoQueryResult result = geoQuery(overviewInfo, tileBound[0], tileBound[1], tileBound[2], tileBound[3]);
 
-                        CreateTile.ReadInfo readInfo = convertReadInfo(result.rb);
-                        CreateTile.WriteInfo writeInfo = convertWriteInfo(result.wb);
+                    CreateTile.ReadInfo readInfo = convertReadInfo(result.rb);
+                    CreateTile.WriteInfo writeInfo = convertWriteInfo(result.wb);
 
-                        executorService.submit(() -> {
-                            try {
-                                CreateTile.CreateInfo createInfo = new CreateTile.CreateInfo();
-                                createInfo.outTileSize = TILE_SIZE + BUFFER * 2;
-                                createInfo.overviewInfo = convertOverviewInfo(overviewInfo);
-                                createInfo.rb = readInfo;
-                                createInfo.wb = writeInfo;
-                                createInfo.encoding = encoding;
-                                createInfo.x = finalJ;
-                                createInfo.y = finalI;
-                                createInfo.z = finalTz;
-                                createInfo.outputTile = finalOutputDir;
+                    executorService.submit(() -> {
+                        try {
+                            CreateTile.CreateInfo createInfo = new CreateTile.CreateInfo();
+                            createInfo.outTileSize = TILE_SIZE + BUFFER * 2;
+                            createInfo.overviewInfo = convertOverviewInfo(overviewInfo);
+                            createInfo.rb = readInfo;
+                            createInfo.wb = writeInfo;
+                            createInfo.encoding = encoding;
+                            createInfo.x = finalJ;
+                            createInfo.y = finalI;
+                            createInfo.z = finalTz;
+                            createInfo.outputTile = finalOutputDir;
 
-                                CreateTile.createTile(createInfo, (err, pid) -> {
-                                    if (err != null)
-                                        Gir.log.info("Error for tile z=" + finalTz + ", x=" + finalJ + ", y=" + finalI + ": " + err.getMessage());
-                                    childPids.add((long) pid);
-                                    long completed = completeCount.incrementAndGet();
-                                    progressBar.render(completed);
-                                    latch.countDown();
-                                });
-                            } catch (Exception e) {
-                                Gir.log.info("Error in tile generation: " + e.getMessage());
-                                e.printStackTrace();
+                            CreateTile.createTile(createInfo, (err, pid) -> {
+                                if (err != null)
+                                    Gir.log.info("Error for tile z=" + finalTz + ", x=" + finalJ + ", y=" + finalI + ": " + err.getMessage());
+                                childPids.add((long) pid);
+                                long completed = completeCount.incrementAndGet();
+                                progressBar.render(completed);
                                 latch.countDown();
-                            }
-                        });
+                            });
+                        } catch (Exception e) {
+                            Gir.log.info("Error in tile generation: " + e.getMessage());
+                            e.printStackTrace();
+                            latch.countDown();
+                        }
+                    });
                 }
             }
         }
@@ -423,7 +431,7 @@ public class PngTerrainTileGenerator {
 
         if (finalIsSaveMbtiles) {
             importMbtiles(finalOutputDir, finalOutput);
-          Gir.log.info("\n>> 步骤" + (++stepIndex) + ": 转储mbtiles - 完成");
+            Gir.log.info("\n>> 步骤" + (++stepIndex) + ": 转储mbtiles - 完成");
         }
 
         long endTime = System.currentTimeMillis();
@@ -434,6 +442,7 @@ public class PngTerrainTileGenerator {
         executorService.awaitTermination(60, TimeUnit.SECONDS);
         recycle();
     }
+
     private static OverViewInfoResult buildPyramid(Dataset ds, int minZoom, int resampling) {
         String dsPath = ds.GetDescription();
         String ovrPath = dsPath + ".ovr";
@@ -441,6 +450,7 @@ public class PngTerrainTileGenerator {
 
         // ============ 校验已有金字塔是否可用（.ovr 存在 + 顶层 layer 小于等于 minZoom） ============
         if (ovrFile.exists()) {
+            Gir.log.info("  发现已经存在的金字塔文件， {}" ,ovrFile.getAbsolutePath());
             Band band = ds.GetRasterBand(1);
             if (band != null) {
                 int overviewCount = band.GetOverviewCount();
@@ -465,7 +475,7 @@ public class PngTerrainTileGenerator {
                         return result;
                     }
                     Gir.log.info("  已存在金字塔层数不足（顶层 zoom=" + result.minOverViewsZ
-                            + " > minZoom=" + minZoom + "），重新生成");
+                                 + " > minZoom=" + minZoom + "），重新生成");
                 }
             }
         }
@@ -508,7 +518,7 @@ public class PngTerrainTileGenerator {
             Band band = ds.GetRasterBand(1);
             if (band != null) {
                 int actualOverviewCount = band.GetOverviewCount();
-              Gir.log.info("  实际生成的 Overview 数量: " + actualOverviewCount);
+                Gir.log.info("  实际生成的 Overview 数量: " + actualOverviewCount);
                 if (actualOverviewCount > 0 && actualOverviewCount < overviewNum) {
                     overviewNum = actualOverviewCount;
                 }
@@ -519,10 +529,10 @@ public class PngTerrainTileGenerator {
         result.maxOverViewsZ = originZ - 1;
         result.minOverViewsZ = originZ - overviewNum;
 
-      Gir.log.info("金字塔信息:");
-      Gir.log.info("  - 原始数据对应缩放级别: " + originZ);
-      Gir.log.info("  - 金字塔层数: " + overviewNum);
-      Gir.log.info("  - 金字塔因子: " + Arrays.toString(overviewFactors));
+        Gir.log.info("金字塔信息:");
+        Gir.log.info("  - 原始数据对应缩放级别: " + originZ);
+        Gir.log.info("  - 金字塔层数: " + overviewNum);
+        Gir.log.info("  - 金字塔因子: " + Arrays.toString(overviewFactors));
 
         return result;
     }
@@ -562,8 +572,8 @@ public class PngTerrainTileGenerator {
                 info.resX = dsInfo.resX * factor;
                 info.resY = dsInfo.resY * factor;
 
-              Gir.log.info("  Zoom " + tz + " -> Overview index: " + index + "/" + maxIndex +
-                                   ", factor: " + factor + ", size: " + width + "x" + height);
+                Gir.log.info("  Zoom " + tz + " -> Overview index: " + index + "/" + maxIndex +
+                             ", factor: " + factor + ", size: " + width + "x" + height);
             } else if (tz < overViewInfo.minOverViewsZ) {
                 int lastIndex = maxIndex;
                 int factor = (int) Math.pow(2, lastIndex + 1);
@@ -579,13 +589,14 @@ public class PngTerrainTileGenerator {
                 info.resX = dsInfo.resX * factor;
                 info.resY = dsInfo.resY * factor;
 
-              Gir.log.info("  Zoom " + tz + " -> 使用最粗略 Overview index: " + lastIndex +
-                                   ", factor: " + factor + ", size: " + width + "x" + height);
+                Gir.log.info("  Zoom " + tz + " -> 使用最粗略 Overview index: " + lastIndex +
+                             ", factor: " + factor + ", size: " + width + "x" + height);
             }
         }
 
         return info;
     }
+
     static class GeoQueryResult {
         ReadInfo rb;
         WriteInfo wb;
@@ -679,7 +690,6 @@ public class PngTerrainTileGenerator {
     }
 
 
-
     private static CreateTile.ReadInfo convertReadInfo(ReadInfo ri) {
         CreateTile.ReadInfo result = new CreateTile.ReadInfo();
         result.rx = ri.rx;
@@ -747,7 +757,10 @@ public class PngTerrainTileGenerator {
             }
             return ds; // 有效，调用方接管生命周期
         } catch (Exception e) {
-            try { ds.delete(); } catch (Exception ignored) {}
+            try {
+                ds.delete();
+            } catch (Exception ignored) {
+            }
             return null;
         }
     }
@@ -785,31 +798,33 @@ public class PngTerrainTileGenerator {
         if (sourceDs != null) {
             try {
                 sourceDs.delete();
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
             sourceDs = null;
         }
         if (projectDs != null) {
             try {
                 projectDs.delete();
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
             projectDs = null;
         }
         if (projectPath != null) {
             try {
-              Gir.log.info("重投影文件保留在: " + projectPath);
+                Gir.log.info("重投影文件保留在: " + projectPath);
                 // 检查 .ovr 文件（GDAL 默认生成 .ovr 扩展名）
                 String ovrPath = projectPath + ".ovr";
                 File ovrFile = new File(ovrPath);
                 if (ovrFile.exists()) {
-                  Gir.log.info("金字塔文件保留在: " + ovrFile.getAbsolutePath());
+                    Gir.log.info("金字塔文件保留在: " + ovrFile.getAbsolutePath());
                 } else {
                     // 某些 GDAL 版本可能生成 .aux.xml
                     String auxPath = projectPath + ".aux.xml";
                     File auxFile = new File(auxPath);
                     if (auxFile.exists()) {
-                      Gir.log.info("金字塔文件保留在: " + auxFile.getAbsolutePath());
+                        Gir.log.info("金字塔文件保留在: " + auxFile.getAbsolutePath());
                     } else {
-                      Gir.log.info("警告: 未找到金字塔文件 (.ovr 或 .aux.xml)");
+                        Gir.log.info("警告: 未找到金字塔文件 (.ovr 或 .aux.xml)");
                     }
                 }
             } catch (Exception e) {
@@ -820,7 +835,8 @@ public class PngTerrainTileGenerator {
         if (encodePath != null) {
             try {
                 Files.deleteIfExists(Paths.get(encodePath));
-            } catch (IOException ignored) {}
+            } catch (IOException ignored) {
+            }
             encodePath = null;
         }
     }
