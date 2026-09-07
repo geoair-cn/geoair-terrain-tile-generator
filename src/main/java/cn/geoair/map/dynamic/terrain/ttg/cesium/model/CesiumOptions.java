@@ -17,7 +17,7 @@ import cn.geoair.map.dynamic.terrain.ttg.cesium.CesiumTerrainGenerator.MeshPreci
  * 使用示例：
  * <pre>
  * // 使用默认配置
- * CesiumOptions options = CesiumOptions.defaultCesiumOptions(0, 12, 4326, "dem_4326");
+ * CesiumOptions options = CesiumOptions.standardOptions(12, "dem_4326");
  *
  * // 自定义配置
  * CesiumOptions options = new CesiumOptions(
@@ -234,8 +234,8 @@ public class CesiumOptions {
      * <p>
      * 使用示例：
      * <pre>
-     * // 生成 zoom 0-12 的地形瓦片（第一个参数必须为 0）
-     * CesiumOptions options = CesiumOptions.defaultCesiumOptions(0, 12, 4326, "dem_4326");
+     * // 生成 zoom 0-12 的标准精度地形瓦片
+     * CesiumOptions options = CesiumOptions.standardOptions(12, "dem_4326");
      * CesiumTerrainGenerator.generate("input.tif", "output_dir", options);
      * </pre>
      *
@@ -265,5 +265,55 @@ public class CesiumOptions {
                                                       String reProjectFileName, boolean gzip) {
         return new CesiumOptions(0, maxZoom, epsg, true, 2, reProjectFileName,
                 MeshPrecision.MEDIUM, gzip);
+    }
+
+    /**
+     * 快速预览选项：33 x 33 网格，适合快速检查 DEM 覆盖范围和整体地形。
+     *
+     * @param maxZoom 最大缩放级别
+     * @param reProjectFileName 重投影文件名，"UUID" 表示自动生成
+     * @return gzip 关闭的低精度选项
+     */
+    public static CesiumOptions lowOptions(int maxZoom, String reProjectFileName) {
+        return createPreset(maxZoom, reProjectFileName, MeshPrecision.LOW);
+    }
+
+    /**
+     * 标准生产选项：65 x 65 网格，是默认且推荐的平衡配置。
+     *
+     * @param maxZoom 最大缩放级别
+     * @param reProjectFileName 重投影文件名，"UUID" 表示自动生成
+     * @return gzip 关闭的标准精度选项
+     */
+    public static CesiumOptions standardOptions(int maxZoom, String reProjectFileName) {
+        return createPreset(maxZoom, reProjectFileName, MeshPrecision.MEDIUM);
+    }
+
+    /**
+     * 高精度选项：129 x 129 网格，适合山地和需要更细地形细节的区域。
+     *
+     * @param maxZoom 最大缩放级别
+     * @param reProjectFileName 重投影文件名，"UUID" 表示自动生成
+     * @return gzip 关闭的高精度选项
+     */
+    public static CesiumOptions highOptions(int maxZoom, String reProjectFileName) {
+        return createPreset(maxZoom, reProjectFileName, MeshPrecision.HIGH);
+    }
+
+    /**
+     * 超高精度选项：257 x 257 网格，仅建议用于范围较小且精度要求极高的 DEM。
+     *
+     * @param maxZoom 最大缩放级别
+     * @param reProjectFileName 重投影文件名，"UUID" 表示自动生成
+     * @return gzip 关闭的超高精度选项
+     */
+    public static CesiumOptions ultraOptions(int maxZoom, String reProjectFileName) {
+        return createPreset(maxZoom, reProjectFileName, MeshPrecision.ULTRA);
+    }
+
+    private static CesiumOptions createPreset(int maxZoom, String reProjectFileName,
+                                               MeshPrecision precision) {
+        return new CesiumOptions(0, maxZoom, 4326, true, 2, reProjectFileName,
+                precision, false);
     }
 }

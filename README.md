@@ -4,18 +4,29 @@
 
 ## 为什么重写
 
-原版 dem2terrain 采用 Node.js 多进程架构，每个瓦片 fork 子进程处理。对于省级别 DEM（如新疆 80GB+）切 0-12 级瓦片：
+原版 dem2terrain 采用 Node.js 多进程架构，每个瓦片 fork 子进程处理。GeoAir 版本改为单进程线程池，控制内存占用并减少进程创建开销。
 
-| 方案 | 耗时 | 内存占用 |
-|------|------|----------|
-| dem2terrain (Node.js) | 2-3 天 | 32GB+（多进程累积） |
-| **geoair-terrain-tile-generator** | **3-5 分钟** | **2-4GB（单进程线程池）** |
+### 实测性能基准
+
+以下为同一份 30 m 全疆 DEM 的实测结果：
+
+| 输出类型 | 级别 | 输出体积 | 耗时 | 平均内存 |
+|----------|------|----------|------|----------|
+| Cesium quantized-mesh（默认 `gzip=false`） | 0-13 | 约 35 GB | 约 2 小时 | 约 8 GB |
+| Mapbox 二维 PNG 地形（压缩后） | 0-15 | 约 5.63 GB | 约 2.5 小时 | 约 10 GB |
+
+对于同一份 DEM，二维 PNG 地形和 Cesium quantized-mesh 在仅生成 0-10 级时，实测均可在约 1 分钟内完成。
 
 核心优化：
 - **线程池替代多进程**：使用 `ExecutorService` 线程池复用 GDAL Dataset，避免 fork 开销
 - **ThreadLocal 复用缓冲区**：每线程独立缓冲区，消除每瓦片 2MB 垃圾分配
 - **单进程内完成全部工作**：避免进程间内存累积和 IPC 开销
 - **影像金字塔预构建**：利用 GDAL Overview 机制，低层级直接读取降采样数据
+
+核心价值：
+- **高性能 Node.js 替代方案**：以 Java 线程池完成 DEM 切片，适合大范围、高层级任务。
+- **自主 Cesium 三维地形生产能力**：不依赖桌面 Cesium 切片软件；具备少量 Java 代码或命令行使用能力即可在本地生成 quantized-mesh 地形。
+- **可集成的平台能力**：`CesiumTerrainGenerator` 与 `PngTerrainTileGenerator` 可直接被 Java GIS 平台调用，作为平台内建的二维、三维地形切片能力。
 
 ## 功能
 
@@ -54,6 +65,24 @@ Dem2Cesium input.tif output [minZoom] [maxZoom] [epsg] [isClean] [resampling] [r
 | `gzip` | `true`/`false` 或 `1`/`0`，默认 `false`。开启后服务端必须声明 `Content-Encoding: gzip`。 |
 
 Cesium 输出固定 EPSG:4326 + TMS 瓦片方案，输入非 4326 时自动重投影。
+
+#### Java 默认配置
+
+以下工厂方法都使用 `minZoom=0`、EPSG:4326、双线性重采样、清空输出目录，以及 `gzip=false`：
+
+| 方法 | 网格 | 适用场景 |
+|------|------|----------|
+| `CesiumOptions.lowOptions(maxZoom, fileName)` | 33 × 33 | 快速预览、覆盖范围检查 |
+| `CesiumOptions.standardOptions(maxZoom, fileName)` | 65 × 65 | 默认推荐，质量和体积均衡 |
+| `CesiumOptions.highOptions(maxZoom, fileName)` | 129 × 129 | 山地或需要更细地形的区域 |
+| `CesiumOptions.ultraOptions(maxZoom, fileName)` | 257 × 257 | 小范围高精度生产，文件和耗时较高 |
+
+示例：
+
+```java
+CesiumOptions options = CesiumOptions.standardOptions(12, "UUID");
+CesiumTerrainGenerator.generate("input.tif", "outcesium", options);
+```
 
 ### Cesium 部署与验证
 
