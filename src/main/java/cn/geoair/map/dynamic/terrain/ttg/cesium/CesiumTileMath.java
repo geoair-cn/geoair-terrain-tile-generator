@@ -4,7 +4,8 @@ import cn.geoair.map.dynamic.terrain.ttg.model.Bounds;
 import cn.geoair.map.dynamic.terrain.ttg.model.Range;
 
 final class CesiumTileMath {
-    private CesiumTileMath() {}
+    private CesiumTileMath() {
+    }
 
     static Bounds bounds(int zoom, int x, int tmsY) {
         int xTiles = 1 << (zoom + 1);

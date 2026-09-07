@@ -15,7 +15,8 @@ final class CesiumQuantizedMeshEncoder {
     private static final double ECCENTRICITY_SQUARED =
             1.0 - (SEMI_MINOR_AXIS * SEMI_MINOR_AXIS) / (SEMI_MAJOR_AXIS * SEMI_MAJOR_AXIS);
 
-    private CesiumQuantizedMeshEncoder() {}
+    private CesiumQuantizedMeshEncoder() {
+    }
 
     static byte[] encode(float[][] heights, Bounds bounds) throws IOException {
         int size = heights.length;
@@ -26,10 +27,11 @@ final class CesiumQuantizedMeshEncoder {
         float maxHeight = Float.NEGATIVE_INFINITY;
         for (float[] row : heights) {
             if (row.length != size) throw new IllegalArgumentException("Height grid must be square");
-            for (float height : row) if (!Float.isNaN(height)) {
-                minHeight = Math.min(minHeight, height);
-                maxHeight = Math.max(maxHeight, height);
-            }
+            for (float height : row)
+                if (!Float.isNaN(height)) {
+                    minHeight = Math.min(minHeight, height);
+                    maxHeight = Math.max(maxHeight, height);
+                }
         }
         if (!Float.isFinite(minHeight)) return null;
 
@@ -120,7 +122,7 @@ final class CesiumQuantizedMeshEncoder {
             east[i] = remap[i * size + (size - 1)];
             north[i] = remap[size - 1 - i];
         }
-        return new int[][] {west, south, east, north};
+        return new int[][]{west, south, east, north};
     }
 
     private static void writeHeader(ByteArrayOutputStream out, List<Vertex> vertices,
@@ -131,9 +133,14 @@ final class CesiumQuantizedMeshEncoder {
         for (Vertex vertex : vertices) {
             radius = Math.max(radius, distance(center, toEcef(vertex.longitude, vertex.latitude, vertex.sourceHeight)));
         }
-        writeDoubleLE(out, center[0]); writeDoubleLE(out, center[1]); writeDoubleLE(out, center[2]);
-        writeFloatLE(out, minHeight); writeFloatLE(out, maxHeight);
-        writeDoubleLE(out, center[0]); writeDoubleLE(out, center[1]); writeDoubleLE(out, center[2]);
+        writeDoubleLE(out, center[0]);
+        writeDoubleLE(out, center[1]);
+        writeDoubleLE(out, center[2]);
+        writeFloatLE(out, minHeight);
+        writeFloatLE(out, maxHeight);
+        writeDoubleLE(out, center[0]);
+        writeDoubleLE(out, center[1]);
+        writeDoubleLE(out, center[2]);
         writeDoubleLE(out, radius);
         writeDoubleLE(out, center[0] / SEMI_MAJOR_AXIS);
         writeDoubleLE(out, center[1] / SEMI_MAJOR_AXIS);
@@ -163,7 +170,8 @@ final class CesiumQuantizedMeshEncoder {
     }
 
     private static void writeIndex(ByteArrayOutputStream out, int value, boolean use32Bit) {
-        if (use32Bit) writeIntLE(out, value); else writeUShortLE(out, value);
+        if (use32Bit) writeIntLE(out, value);
+        else writeUShortLE(out, value);
     }
 
     private static int clamp(long value) {
@@ -176,7 +184,7 @@ final class CesiumQuantizedMeshEncoder {
         double sin = Math.sin(lat);
         double cos = Math.cos(lat);
         double radius = SEMI_MAJOR_AXIS / Math.sqrt(1.0 - ECCENTRICITY_SQUARED * sin * sin);
-        return new double[] {(radius + height) * cos * Math.cos(lon),
+        return new double[]{(radius + height) * cos * Math.cos(lon),
                 (radius + height) * cos * Math.sin(lon),
                 (radius * (1.0 - ECCENTRICITY_SQUARED) + height) * sin};
     }
@@ -186,16 +194,25 @@ final class CesiumQuantizedMeshEncoder {
         return Math.sqrt(x * x + y * y + z * z);
     }
 
-    private static void writeDoubleLE(ByteArrayOutputStream out, double value) { writeLongLE(out, Double.doubleToLongBits(value)); }
-    private static void writeFloatLE(ByteArrayOutputStream out, float value) { writeIntLE(out, Float.floatToIntBits(value)); }
+    private static void writeDoubleLE(ByteArrayOutputStream out, double value) {
+        writeLongLE(out, Double.doubleToLongBits(value));
+    }
+
+    private static void writeFloatLE(ByteArrayOutputStream out, float value) {
+        writeIntLE(out, Float.floatToIntBits(value));
+    }
+
     private static void writeLongLE(ByteArrayOutputStream out, long value) {
         for (int i = 0; i < 8; i++) out.write((int) (value >>> (i * 8)) & 0xFF);
     }
+
     private static void writeIntLE(ByteArrayOutputStream out, int value) {
         for (int i = 0; i < 4; i++) out.write((value >>> (i * 8)) & 0xFF);
     }
+
     private static void writeUShortLE(ByteArrayOutputStream out, int value) {
-        out.write(value & 0xFF); out.write((value >>> 8) & 0xFF);
+        out.write(value & 0xFF);
+        out.write((value >>> 8) & 0xFF);
     }
 
     private static class Vertex {
@@ -204,8 +221,12 @@ final class CesiumQuantizedMeshEncoder {
         final double longitude, latitude;
 
         Vertex(int u, int v, int height, float sourceHeight, double longitude, double latitude) {
-            this.u = u; this.v = v; this.height = height;
-            this.sourceHeight = sourceHeight; this.longitude = longitude; this.latitude = latitude;
+            this.u = u;
+            this.v = v;
+            this.height = height;
+            this.sourceHeight = sourceHeight;
+            this.longitude = longitude;
+            this.latitude = latitude;
         }
     }
 
@@ -215,7 +236,9 @@ final class CesiumQuantizedMeshEncoder {
         final int[] remap;
 
         Mesh(List<Vertex> vertices, int[] triangles, int[] remap) {
-            this.vertices = vertices; this.triangles = triangles; this.remap = remap;
+            this.vertices = vertices;
+            this.triangles = triangles;
+            this.remap = remap;
         }
     }
 }

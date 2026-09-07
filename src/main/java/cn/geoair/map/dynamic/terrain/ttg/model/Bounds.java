@@ -16,10 +16,21 @@ public class Bounds {
         this.north = north;
     }
 
-    public double west() { return west; }
-    public double south() { return south; }
-    public double east() { return east; }
-    public double north() { return north; }
+    public double west() {
+        return west;
+    }
+
+    public double south() {
+        return south;
+    }
+
+    public double east() {
+        return east;
+    }
+
+    public double north() {
+        return north;
+    }
 
     public double longitudeAt(int column, int size) {
         return west + column * (east - west) / (size - 1.0);

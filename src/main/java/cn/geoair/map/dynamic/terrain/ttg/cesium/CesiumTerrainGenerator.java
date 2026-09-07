@@ -32,15 +32,24 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 public final class CesiumTerrainGenerator {
-    static { gdal.AllRegister(); }
+    static {
+        gdal.AllRegister();
+    }
 
-    private CesiumTerrainGenerator() {}
+    private CesiumTerrainGenerator() {
+    }
 
     public enum MeshPrecision {
         LOW(33), MEDIUM(65), HIGH(129), ULTRA(257);
         private final int gridSize;
-        MeshPrecision(int gridSize) { this.gridSize = gridSize; }
-        public int gridSize() { return gridSize; }
+
+        MeshPrecision(int gridSize) {
+            this.gridSize = gridSize;
+        }
+
+        public int gridSize() {
+            return gridSize;
+        }
     }
 
     public static void generate(String input, String outputDirectory, CesiumOptions options) throws Exception {
@@ -64,12 +73,13 @@ public final class CesiumTerrainGenerator {
             } else {
                 File parent = output.getAbsoluteFile().getParentFile();
                 String name = (options.reprojectFileName() == null || options.reprojectFileName().trim().isEmpty()
-                        || "UUID".equalsIgnoreCase(options.reprojectFileName()))
+                               || "UUID".equalsIgnoreCase(options.reprojectFileName()))
                         ? java.util.UUID.randomUUID().toString() : options.reprojectFileName();
                 workingPath = new File(parent, name + ".tif").getAbsolutePath();
                 reprojectTo4326(inputDataset, workingPath, options.resampling());
                 workingDataset = gdal.Open(workingPath);
-                if (workingDataset == null) throw new IllegalStateException("Cannot open reprojected result: " + workingPath);
+                if (workingDataset == null)
+                    throw new IllegalStateException("Cannot open reprojected result: " + workingPath);
             }
 
             DatasetInfo datasetInfo = DatasetInfo.from(workingDataset);
@@ -148,14 +158,22 @@ public final class CesiumTerrainGenerator {
 
     private static int gdalResampling(int value) {
         switch (value) {
-            case 1: return gdalconst.GRA_Average;
-            case 2: return gdalconst.GRA_Bilinear;
-            case 3: return gdalconst.GRA_Cubic;
-            case 4: return gdalconst.GRA_CubicSpline;
-            case 5: return gdalconst.GRA_Lanczos;
-            case 6: return gdalconst.GRA_Mode;
-            case 7: return gdalconst.GRA_NearestNeighbour;
-            default: return gdalconst.GRA_Cubic;
+            case 1:
+                return gdalconst.GRA_Average;
+            case 2:
+                return gdalconst.GRA_Bilinear;
+            case 3:
+                return gdalconst.GRA_Cubic;
+            case 4:
+                return gdalconst.GRA_CubicSpline;
+            case 5:
+                return gdalconst.GRA_Lanczos;
+            case 6:
+                return gdalconst.GRA_Mode;
+            case 7:
+                return gdalconst.GRA_NearestNeighbour;
+            default:
+                return gdalconst.GRA_Cubic;
         }
     }
 
@@ -173,11 +191,16 @@ public final class CesiumTerrainGenerator {
     private static void emptyDirectory(Path directory) throws IOException {
         if (!Files.exists(directory)) return;
         Files.walkFileTree(directory, new SimpleFileVisitor<Path>() {
-            @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
-                Files.delete(file); return FileVisitResult.CONTINUE;
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+                Files.delete(file);
+                return FileVisitResult.CONTINUE;
             }
-            @Override public FileVisitResult postVisitDirectory(Path current, IOException exception) throws IOException {
-                Files.delete(current); return FileVisitResult.CONTINUE;
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path current, IOException exception) throws IOException {
+                Files.delete(current);
+                return FileVisitResult.CONTINUE;
             }
         });
     }

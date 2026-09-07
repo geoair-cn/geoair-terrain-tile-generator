@@ -31,11 +31,37 @@ public class CesiumOptions {
         this.precision = precision == null ? MeshPrecision.MEDIUM : precision;
     }
 
-    public int minZoom() { return minZoom; }
-    public int maxZoom() { return maxZoom; }
-    public int targetEpsg() { return targetEpsg; }
-    public boolean cleanOutput() { return cleanOutput; }
-    public int resampling() { return resampling; }
-    public String reprojectFileName() { return reprojectFileName; }
-    public MeshPrecision precision() { return precision; }
+    public int minZoom() {
+        return minZoom;
+    }
+
+    public int maxZoom() {
+        return maxZoom;
+    }
+
+    public int targetEpsg() {
+        return targetEpsg;
+    }
+
+    public boolean cleanOutput() {
+        return cleanOutput;
+    }
+
+    public int resampling() {
+        return resampling;
+    }
+
+    public String reprojectFileName() {
+        return reprojectFileName;
+    }
+
+    public MeshPrecision precision() {
+        return precision;
+    }
+
+
+    public static CesiumOptions defaultCesiumOptions(int minZoom, int maxZoom, int epsg, String reProjectFileName) {
+        CesiumOptions options = new CesiumOptions(minZoom, maxZoom, epsg, true, 1, reProjectFileName, MeshPrecision.MEDIUM);
+        return options;
+    }
 }

@@ -16,8 +16,19 @@ public class Range {
         this.maxY = maxY;
     }
 
-    public int minX() { return minX; }
-    public int minY() { return minY; }
-    public int maxX() { return maxX; }
-    public int maxY() { return maxY; }
+    public int minX() {
+        return minX;
+    }
+
+    public int minY() {
+        return minY;
+    }
+
+    public int maxX() {
+        return maxX;
+    }
+
+    public int maxY() {
+        return maxY;
+    }
 }

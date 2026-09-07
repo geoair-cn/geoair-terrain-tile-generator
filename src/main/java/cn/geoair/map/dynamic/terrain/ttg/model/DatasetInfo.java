@@ -32,16 +32,45 @@ public class DatasetInfo {
         this.height = height;
     }
 
-    public double west() { return west; }
-    public double south() { return south; }
-    public double east() { return east; }
-    public double north() { return north; }
-    public double originX() { return originX; }
-    public double originY() { return originY; }
-    public double resolutionX() { return resolutionX; }
-    public double resolutionY() { return resolutionY; }
-    public int width() { return width; }
-    public int height() { return height; }
+    public double west() {
+        return west;
+    }
+
+    public double south() {
+        return south;
+    }
+
+    public double east() {
+        return east;
+    }
+
+    public double north() {
+        return north;
+    }
+
+    public double originX() {
+        return originX;
+    }
+
+    public double originY() {
+        return originY;
+    }
+
+    public double resolutionX() {
+        return resolutionX;
+    }
+
+    public double resolutionY() {
+        return resolutionY;
+    }
+
+    public int width() {
+        return width;
+    }
+
+    public int height() {
+        return height;
+    }
 
     public static DatasetInfo from(Dataset dataset) {
         double[] transform = dataset.GetGeoTransform();
