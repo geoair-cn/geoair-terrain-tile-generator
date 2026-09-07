@@ -1,6 +1,7 @@
 package cn.geoair.map.dynamic.terrain.ttg.png;
 
 import cn.geoair.base.Gir;
+import cn.geoair.map.dynamic.terrain.ttg.png.model.Options;
 
 /**
  * DEM 转 PNG 地形瓦片生成器。
@@ -50,7 +51,7 @@ public class Dem2Png {
         Gir.log.info("ReProjectFileName: " + reProjectFileName);
         Gir.log.info("----------------------------");
 
-        PngTerrainTileGenerator.Options options = new PngTerrainTileGenerator.Options(
+        Options options = new Options(
                 minZoom, maxZoom, epsg, encoding, isClean, resampling, reProjectFileName);
         PngTerrainTileGenerator.generate(input, output, options);
     }

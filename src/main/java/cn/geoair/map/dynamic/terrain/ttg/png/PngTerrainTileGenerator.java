@@ -1,6 +1,7 @@
 package cn.geoair.map.dynamic.terrain.ttg.png;
 
 import cn.geoair.base.Gir;
+import cn.geoair.map.dynamic.terrain.ttg.png.model.*;
 import org.gdal.gdal.Band;
 import org.gdal.gdal.Dataset;
 import org.gdal.gdal.gdal;
@@ -35,150 +36,6 @@ public class PngTerrainTileGenerator {
     private static final Map<Integer, LevelInfo> levelInfo = new ConcurrentHashMap<>();
     private static ExecutorService executorService;
     private static final Set<Long> childPids = ConcurrentHashMap.newKeySet();
-
-    public static class LevelInfo {
-        public int tminx, tminy, tmaxx, tmaxy;
-    }
-
-    static class OverviewInfo {
-        int index;
-        double startX, startY;
-        int width, height;
-        double resX, resY;
-    }
-
-    static class DsInfo {
-        int width, height;
-        double resX, resY;
-        double startX, startY;
-        double endX, endY;
-        String path;
-    }
-
-    static class OverViewInfoResult {
-        int maxOverViewsZ, minOverViewsZ;
-    }
-
-    /**
-     * 地形瓦片生成配置选项类
-     * 用于配置地形瓦片生成过程中的所有参数
-     */
-    public static class Options {
-        /**
-         * 最小缩放级别（瓦片金字塔最顶层）
-         * 例如：0 表示全球范围，1:2，2:4 以此类推
-         * 范围通常为 0-20，值越小瓦片越少
-         */
-        public int minZoom;
-
-        /**
-         * 最大缩放级别（瓦片金字塔最底层）
-         * 例如：10 表示最精细的级别
-         * 范围通常为 0-20，值越大瓦片越精细，数量也越多
-         */
-        public int maxZoom;
-
-        /**
-         * 目标坐标系 EPSG 编码
-         * 例如：4326 (WGS84 经纬度), 3857 (Web Mercator), 4490 (CGCS2000)
-         * 如果源数据坐标系与此不同，会自动进行重投影
-         */
-        public int epsg;
-
-        /**
-         * 是否清空输出目录
-         * 1 = 清空输出目录（删除已有瓦片文件），0 = 保留并覆盖已有文件
-         * 建议设置为 1 以避免新旧文件混用导致的问题
-         */
-        public int isClean;
-
-        /**
-         * 重采样方法
-         * 用于重投影和构建金字塔时的像素插值算法
-         * <p>
-         * 可选值及对应含义：
-         * 0 = nearest (最近邻) - 速度最快，质量最差
-         * 1 = bilinear (双线性) - 平衡速度和质量的常用选择
-         * 2 = cubic (三次卷积) - 质量较好，速度较慢
-         * 3 = cubicspline (三次样条) - 质量更好，速度更慢
-         * 4 = lanczos (Lanczos) - 质量最好，速度最慢，适合细节保留
-         * 5 = average (平均值)
-         * 6 = mode (众数)
-         * 7 = max (最大值)
-         * 8 = min (最小值)
-         * 9 = med (中值)
-         * 10 = q1 (第一四分位数)
-         * 11 = q3 (第三四分位数)
-         * <p>
-         * 建议：地形数据推荐使用 bilinear(1) 或 cubic(2) 以获得平滑效果
-         */
-        public int resampling;
-
-        /**
-         * 编码方式（地形数据 RGB 编码算法）
-         * <p>
-         * "mapbox" - Mapbox 编码方式
-         * 将高程值编码为 RGB 三个通道，每个通道 8 位
-         * 优点：兼容 Mapbox 地形服务规范
-         * <p>
-         * "terrarium" - Terrarium 编码方式
-         * 另一种地形编码方式，使用 RGB 编码
-         * 优点：在某些 GIS 工具中兼容性更好
-         * <p>
-         * 仅支持 "mapbox" 或 "terrarium"。
-         */
-        public String encoding;
-
-        /**
-         * 重投影输出文件名（不含扩展名）
-         * <p>
-         * 用途：当源数据坐标系与目标坐标系(epsg)不一致时，
-         * 会先进行重投影，重投影后的文件将保存为此名称
-         * <p>
-         * 特殊值：
-         * "UUID" 或不指定时 - 自动生成 UUID 作为文件名
-         * 其他值 - 使用指定的文件名
-         * <p>
-         * 示例：
-         * - "新疆地形_3857" → 生成 "新疆地形_3857.tif"
-         * - "UUID" → 生成 "a1b2c3d4-e5f6-7890-abcd-ef1234567890.tif"
-         * <p>
-         * 注意：重投影文件会保存在输出目录的父目录中，
-         * 与瓦片输出目录平级，便于重复使用
-         */
-        public String reProjectFileName;
-
-        /**
-         * 构造地形瓦片生成配置选项
-         *
-         * @param minZoom           最小缩放级别，通常为 0
-         * @param maxZoom           最大缩放级别，建议不超过 15（根据数据量调整）
-         * @param epsg              目标坐标系 EPSG 编码，常用值：4326, 3857, 4490
-         * @param encoding          编码方式："mapbox" 或 "terrarium"
-         * @param isClean           是否清空输出目录：1=清空，0=保留
-         * @param resampling        重采样方法：0-11 对应不同算法
-         * @param reProjectFileName 重投影文件名，使用 "UUID" 表示自动生成
-         */
-        public Options(int minZoom, int maxZoom, int epsg, String encoding, int isClean, int resampling, String reProjectFileName) {
-            this.minZoom = minZoom;
-            this.maxZoom = maxZoom;
-            this.epsg = epsg;
-            this.encoding = encoding;
-            this.isClean = isClean;
-            this.resampling = resampling;
-            this.reProjectFileName = reProjectFileName;
-        }
-
-        public static Options defaultMapBoxOptions(int minZoom, int maxZoom, int epsg, String reProjectFileName) {
-            Options options = new Options(minZoom, maxZoom, epsg, "mapbox", 1, 1, reProjectFileName);
-            return options;
-        }
-
-        public static Options defaultTerrariumOptions(int minZoom, int maxZoom, int epsg, String reProjectFileName) {
-            Options options = new Options(minZoom, maxZoom, epsg, "terrarium", 1, 1, reProjectFileName);
-            return options;
-        }
-    }
 
 
     public static void generate(String input, String output, Options options) throws Exception {
@@ -595,19 +452,6 @@ public class PngTerrainTileGenerator {
         }
 
         return info;
-    }
-
-    static class GeoQueryResult {
-        ReadInfo rb;
-        WriteInfo wb;
-    }
-
-    static class ReadInfo {
-        int rx, ry, rxsize, rysize;
-    }
-
-    static class WriteInfo {
-        int wx, wy, wxsize, wysize;
     }
 
     private static GeoQueryResult geoQuery(OverviewInfo overviewInfo, double ulx, double uly, double lrx, double lry) {
