@@ -145,13 +145,13 @@ final class CesiumQuantizedMeshEncoder {
      * 创建一个空的但合法的 quantized-mesh 瓦片
      * <p>
      * 当瓦片完全超出 DEM 范围时（高程全为 NaN），生成一个最小的合法 terrain 文件。
-     * 这个文件可以被 Cesium 正确解析，但不会渲染任何地形几何体。
+     * 这个文件包含4个角点（高程为0），可以被 Cesium 正确解析。
      * <p>
      * 空瓦片结构：
-     * - Header: 使用 bounds 中心点，高程范围为0
-     * - 顶点数量: 0
-     * - 三角形数量: 0
-     * - 边缘索引: 4个空边缘
+     * - Header: 使用 bounds 中心点，高程为0
+     * - 顶点: 4个角点（2x2网格）
+     * - 三角形: 2个退化三角形
+     * - 边缘索引: 4个边缘
      *
      * @param bounds 瓦片的地理范围
      * @param gzip   是否 gzip 压缩
@@ -159,52 +159,15 @@ final class CesiumQuantizedMeshEncoder {
      * @throws IOException 编码错误
      */
     static byte[] createEmptyTile(Bounds bounds, boolean gzip) throws IOException {
-        ByteArrayOutputStream raw = new ByteArrayOutputStream();
+        // 创建一个 2x2 的全零高程网格（最小合法网格）
+        float[][] emptyHeights = new float[2][2];
+        emptyHeights[0][0] = 0.0f;
+        emptyHeights[0][1] = 0.0f;
+        emptyHeights[1][0] = 0.0f;
+        emptyHeights[1][1] = 0.0f;
 
-        // 写入 Header（使用 bounds 中心，高程为0）
-        double centerLon = (bounds.west() + bounds.east()) * 0.5;
-        double centerLat = (bounds.south() + bounds.north()) * 0.5;
-        double[] center = toEcef(centerLon, centerLat, 0.0);
-
-        // 中心点 Cartesian3
-        writeDoubleLE(raw, center[0]);
-        writeDoubleLE(raw, center[1]);
-        writeDoubleLE(raw, center[2]);
-
-        // 最小/最大高程
-        writeFloatLE(raw, 0.0f);
-        writeFloatLE(raw, 0.0f);
-
-        // 包围球中心和半径
-        writeDoubleLE(raw, center[0]);
-        writeDoubleLE(raw, center[1]);
-        writeDoubleLE(raw, center[2]);
-        writeDoubleLE(raw, 0.0);  // 半径为0
-
-        // 地平线遮挡点
-        writeDoubleLE(raw, center[0] / SEMI_MAJOR_AXIS);
-        writeDoubleLE(raw, center[1] / SEMI_MAJOR_AXIS);
-        writeDoubleLE(raw, center[2] / SEMI_MINOR_AXIS);
-
-        // 顶点数量: 0
-        writeIntLE(raw, 0);
-
-        // 三角形数量: 0
-        writeIntLE(raw, 0);
-
-        // 4个边缘索引，每个都是空的
-        for (int i = 0; i < 4; i++) {
-            writeIntLE(raw, 0);  // 边缘顶点数量为0
-        }
-
-        if (!gzip) {
-            return raw.toByteArray();
-        }
-        ByteArrayOutputStream compressed = new ByteArrayOutputStream(raw.size());
-        try (GZIPOutputStream stream = new GZIPOutputStream(compressed)) {
-            stream.write(raw.toByteArray());
-        }
-        return compressed.toByteArray();
+        // 使用正常的编码流程，确保生成合法的 quantized-mesh
+        return encode(emptyHeights, bounds, gzip);
     }
 
     /**
