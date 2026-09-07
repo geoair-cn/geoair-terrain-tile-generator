@@ -8,16 +8,85 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.zip.GZIPOutputStream;
 
+/**
+ * Cesium quantized-mesh 编码器
+ * <p>
+ * 将高程网格数据编码为 Cesium quantized-mesh 地形格式。
+ * <p>
+ * quantized-mesh 格式规范：https://github.com/CesiumGS/quantized-mesh
+ * <p>
+ * 编码流程：
+ * 1. 计算高程范围（minHeight, maxHeight）
+ * 2. 构建量化顶点（u, v, height 量化为 0-32767）
+ * 3. 构建三角网（规则网格的三角剖分）
+ * 4. 使用 high-water-mark 编码重排顶点顺序
+ * 5. 写入文件头（中心点、包围球、高程范围）
+ * 6. 写入顶点数据（u, v, height）
+ * 7. 写入三角网索引（high-water-mark 编码）
+ * 8. 写入边缘索引（用于瓦片接缝处理）
+ * 9. 使用 gzip 压缩整个数据
+ * <p>
+ * 文件格式概览：
+ * +-------------------+
+ * | Header            |  中心点(24字节) + 高程范围(8字节) + 包围球(32字节)
+ * +-------------------+
+ * | Vertex Count      |  4字节 (int32)
+ * +-------------------+
+ * | U coordinates     |  vertexCount * 2字节 (uint16)
+ * +-------------------+
+ * | V coordinates     |  vertexCount * 2字节 (uint16)
+ * +-------------------+
+ * | Heights           |  vertexCount * 2字节 (uint16)
+ * +-------------------+
+ * | Padding           |  对齐到4字节边界
+ * +-------------------+
+ * | Triangle Count    |  4字节 (int32)
+ * +-------------------+
+ * | Triangle Indices  |  high-water-mark 编码
+ * +-------------------+
+ * | Edge Indices      |  4个边缘的索引
+ * +-------------------+
+ * | GZIP Compressed   |  整个数据使用gzip压缩
+ * +-------------------+
+ */
 final class CesiumQuantizedMeshEncoder {
+    /**
+     * 量化最大值：顶点坐标和高程都量化到 [0, 32767] 范围
+     * 使用 uint16 存储，节省空间
+     */
     private static final int QUANTIZATION_MAX = 32767;
+
+    /** WGS84 椭球体长半轴（赤道半径），单位：米 */
     private static final double SEMI_MAJOR_AXIS = 6378137.0;
+
+    /** WGS84 椭球体短半轴（极半径），单位：米 */
     private static final double SEMI_MINOR_AXIS = 6356752.314245179;
+
+    /** WGS84 椭球体第一偏心率平方，用于地理坐标转地心坐标 (ECEF) */
     private static final double ECCENTRICITY_SQUARED =
             1.0 - (SEMI_MINOR_AXIS * SEMI_MINOR_AXIS) / (SEMI_MAJOR_AXIS * SEMI_MAJOR_AXIS);
 
     private CesiumQuantizedMeshEncoder() {
     }
 
+    /**
+     * 将高程网格编码为 quantized-mesh 格式的字节数组
+     * <p>
+     * 编码流程：
+     * 1. 验证输入网格大小（至少 2x2）
+     * 2. 计算有效高程的最小值和最大值
+     * 3. 构建量化顶点（将经纬度和高程量化为 0-32767）
+     * 4. 构建规则网格的三角剖分
+     * 5. 使用 high-water-mark 编码重排顶点（优化压缩率）
+     * 6. 写入文件头和顶点数据
+     * 7. 写入三角网索引和边缘索引
+     * 8. 使用 gzip 压缩
+     *
+     * @param heights 高程网格 [row][column]，无效值为 Float.NaN
+     * @param bounds  瓦片的地理范围（经纬度）
+     * @return 编码后的字节数组，如果全为无效值则返回 null
+     * @throws IOException 编码过程中的 IO 错误
+     */
     static byte[] encode(float[][] heights, Bounds bounds) throws IOException {
         int size = heights.length;
         if (size < 2 || heights[0].length != size) {
@@ -57,8 +126,24 @@ final class CesiumQuantizedMeshEncoder {
         return gzip.toByteArray();
     }
 
+    /**
+     * 构建量化顶点数组
+     * <p>
+     * 将高程网格中的每个点转换为量化顶点，包括：
+     * - u: 经度方向量化坐标 [0, 32767]
+     * - v: 纬度方向量化坐标 [0, 32767]（从南向北递增）
+     * - height: 高程量化值 [0, 32767]（相对于 min/max 范围）
+     * - sourceHeight: 原始高程值（用于计算包围球）
+     * - longitude, latitude: 原始经纬度（用于 ECEF 转换）
+     *
+     * @param heights   高程网格
+     * @param bounds    瓦片地理范围
+     * @param minHeight 有效高程最小值
+     * @param maxHeight 有效高程最大值
+     * @return 量化顶点数组
+     */
     private static Vertex[] buildVertices(float[][] heights, Bounds bounds,
-                                          float minHeight, float maxHeight) {
+                                           float minHeight, float maxHeight) {
         int size = heights.length;
         Vertex[] vertices = new Vertex[size * size];
         double range = maxHeight - minHeight;
@@ -75,6 +160,23 @@ final class CesiumQuantizedMeshEncoder {
         return vertices;
     }
 
+    /**
+     * 构建规则网格的三角剖分
+     * <p>
+     * 将 nxn 的规则网格剖分为 (n-1)*(n-1)*2 个三角形。
+     * 每个网格单元（四边形）被剖分为 2 个三角形：
+     * <pre>
+     * NW --- NE
+     * |  \   |
+     * |   \  |
+     * SW --- SE
+     * 三角形1: NW -> SW -> NE
+     * 三角形2: NE -> SW -> SE
+     * </pre>
+     *
+     * @param size 网格大小（如 65 表示 65x65 网格）
+     * @return 三角形索引数组，每 3 个元素构成一个三角形
+     */
     private static int[] buildGridTriangles(int size) {
         int[] triangles = new int[(size - 1) * (size - 1) * 6];
         int cursor = 0;
@@ -95,6 +197,26 @@ final class CesiumQuantizedMeshEncoder {
         return triangles;
     }
 
+    /**
+     * 使用 high-water-mark 编码重排顶点顺序
+     * <p>
+     * high-water-mark 编码是一种压缩算法，用于减少三角网索引的存储空间。
+     * <p>
+     * 原理：
+     * - 按三角形遍历顺序重新分配顶点编号
+     * - 编码时存储：最高顶点编号 - 当前顶点编号
+     * - 解码时：当前顶点编号 = 最高顶点编号 - 编码值
+     * - 由于差值通常较小，可以使用更少的位数存储
+     * <p>
+     * 示例：
+     * - 原始索引: [0, 5, 3, 3, 5, 8]
+     * - 重排后:   [0, 1, 2, 2, 1, 3]
+     * - 编码值:   [0, 0, 0, 0, 1, 0]  (最高-当前)
+     *
+     * @param vertices        原始顶点数组
+     * @param sourceTriangles 原始三角形索引
+     * @return 重排后的 Mesh 对象（包含新顶点、新索引和重映射表）
+     */
     private static Mesh reorderForHighWaterMark(Vertex[] vertices, int[] sourceTriangles) {
         int[] remap = new int[vertices.length];
         java.util.Arrays.fill(remap, -1);
@@ -111,6 +233,24 @@ final class CesiumQuantizedMeshEncoder {
         return new Mesh(ordered, triangles, remap);
     }
 
+    /**
+     * 计算瓦片边缘索引
+     * <p>
+     * quantized-mesh 格式要求提供瓦片四个边缘的顶点索引，
+     * 用于相邻瓦片之间的接缝处理（seam handling）。
+     * <p>
+     * 边缘顺序：[west, south, east, north]
+     * - west:  西边缘，从北到南
+     * - south: 南边缘，从东到西
+     * - east:  东边缘，从南到北
+     * - north: 北边缘，从西到东
+     * <p>
+     * 注意：边缘顶点顺序是特定的，用于确保相邻瓦片的边缘顶点匹配。
+     *
+     * @param size  网格大小
+     * @param remap 顶点重映射表（high-water-mark 编码后的索引）
+     * @return 四个边缘的索引数组 [4][size]
+     */
     private static int[][] edgeIndices(int size, int[] remap) {
         int[] west = new int[size];
         int[] south = new int[size];
@@ -125,8 +265,39 @@ final class CesiumQuantizedMeshEncoder {
         return new int[][]{west, south, east, north};
     }
 
+    /**
+     * 写入 quantized-mesh 文件头
+     * <p>
+     * 文件头包含以下信息（共 64 字节）：
+     * <p>
+     * 1. 中心点 Cartesian3 (24 字节):
+     *    - centerX: double (8字节) - 瓦片中心的地心坐标 X
+     *    - centerY: double (8字节) - 瓦片中心的地心坐标 Y
+     *    - centerZ: double (8字节) - 瓦片中心的地心坐标 Z
+     * <p>
+     * 2. 高程范围 (8 字节):
+     *    - minimumHeight: float (4字节) - 最小高程
+     *    - maximumHeight: float (4字节) - 最大高程
+     * <p>
+     * 3. 包围球 (32 字节):
+     *    - boundingSphereCenterX: double (8字节)
+     *    - boundingSphereCenterY: double (8字节)
+     *    - boundingSphereCenterZ: double (8字节)
+     *    - boundingSphereRadius: double (8字节)
+     * <p>
+     * 4. 地心坐标系 (24 字节):
+     *    - horizonOcclusionPointX: double (8字节) - 地平线遮挡点 X / SEMI_MAJOR_AXIS
+     *    - horizonOcclusionPointY: double (8字节) - 地平线遮挡点 Y / SEMI_MAJOR_AXIS
+     *    - horizonOcclusionPointZ: double (8字节) - 地平线遮挡点 Z / SEMI_MINOR_AXIS
+     *
+     * @param out        输出流
+     * @param vertices   顶点列表
+     * @param bounds     瓦片地理范围
+     * @param minHeight  最小高程
+     * @param maxHeight  最大高程
+     */
     private static void writeHeader(ByteArrayOutputStream out, List<Vertex> vertices,
-                                    Bounds bounds, float minHeight, float maxHeight) {
+                                     Bounds bounds, float minHeight, float maxHeight) {
         double[] center = toEcef((bounds.west() + bounds.east()) * .5,
                 (bounds.south() + bounds.north()) * .5, (minHeight + maxHeight) * .5);
         double radius = 0.0;
@@ -147,6 +318,27 @@ final class CesiumQuantizedMeshEncoder {
         writeDoubleLE(out, center[2] / SEMI_MINOR_AXIS);
     }
 
+    /**
+     * 写入三角形索引（使用 high-water-mark 编码）
+     * <p>
+     * high-water-mark 编码格式：
+     * 1. 首先写入三角形数量（int32）
+     * 2. 然后写入每个顶点的编码值
+     * <p>
+     * 编码规则：
+     * - 维护一个 highest 变量，表示已处理的最大顶点编号
+     * - 对于每个顶点索引 index，编码值 = highest - index
+     * - 如果编码值 == 0，说明遇到了新顶点，highest++
+     * - 编码值必须 >= 0，否则说明顶点顺序错误
+     * <p>
+     * 索引大小：
+     * - 顶点数 <= 65536: 使用 uint16 (2字节)
+     * - 顶点数 > 65536: 使用 int32 (4字节)
+     *
+     * @param out       输出流
+     * @param triangles 三角形索引数组
+     * @param use32Bit  是否使用 32 位索引
+     */
     private static void writeTriangleIndices(ByteArrayOutputStream out, int[] triangles, boolean use32Bit) {
         writeIntLE(out, triangles.length / 3);
         int highest = 0;
@@ -158,6 +350,18 @@ final class CesiumQuantizedMeshEncoder {
         }
     }
 
+    /**
+     * 写入边缘索引
+     * <p>
+     * 写入瓦片四个边缘的顶点索引，用于相邻瓦片的接缝处理。
+     * 每个边缘的格式：
+     * 1. 边缘顶点数量 (int32)
+     * 2. 顶点索引列表（使用与三角形索引相同的位宽）
+     *
+     * @param out      输出流
+     * @param edges    四个边缘的索引数组 [4][n]
+     * @param use32Bit 是否使用 32 位索引
+     */
     private static void writeEdgeIndices(ByteArrayOutputStream out, int[][] edges, boolean use32Bit) {
         for (int[] edge : edges) {
             writeIntLE(out, edge.length);
@@ -215,10 +419,26 @@ final class CesiumQuantizedMeshEncoder {
         out.write((value >>> 8) & 0xFF);
     }
 
+    /**
+     * 量化顶点
+     * <p>
+     * 存储顶点的量化坐标和原始地理坐标。
+     * 量化坐标用于文件存储（节省空间），
+     * 原始坐标用于计算包围球和地平线遮挡点。
+     */
     private static class Vertex {
-        final int u, v, height;
+        /** 经度方向量化坐标 [0, 32767] */
+        final int u;
+        /** 纬度方向量化坐标 [0, 32767]（从南向北递增） */
+        final int v;
+        /** 高程量化值 [0, 32767] */
+        final int height;
+        /** 原始高程值（米），用于计算包围球半径 */
         final float sourceHeight;
-        final double longitude, latitude;
+        /** 原始经度（度），用于 ECEF 转换 */
+        final double longitude;
+        /** 原始纬度（度），用于 ECEF 转换 */
+        final double latitude;
 
         Vertex(int u, int v, int height, float sourceHeight, double longitude, double latitude) {
             this.u = u;
@@ -230,9 +450,17 @@ final class CesiumQuantizedMeshEncoder {
         }
     }
 
+    /**
+     * 重排后的网格数据
+     * <p>
+     * 包含 high-water-mark 编码后的顶点列表、三角形索引和顶点重映射表。
+     */
     private static class Mesh {
+        /** 重排后的顶点列表 */
         final List<Vertex> vertices;
+        /** 重排后的三角形索引 */
         final int[] triangles;
+        /** 顶点重映射表：原始索引 -> 新索引 */
         final int[] remap;
 
         Mesh(List<Vertex> vertices, int[] triangles, int[] remap) {
