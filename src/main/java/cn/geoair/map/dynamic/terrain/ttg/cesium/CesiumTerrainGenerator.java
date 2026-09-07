@@ -27,6 +27,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
+import java.util.Collections;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -258,10 +260,11 @@ public final class CesiumTerrainGenerator {
                 executor.shutdown();
             }
 
-            // ============ 步骤8: 写入 layer.json 元数据 ============
-            Gir.log.info(">> 步骤{}: 写入 layer.json 元数据", ++stepIndex);
-            // 使用原始的 available 范围（基于 DEM范围计算）
-            writeLayerJson(output.toPath(), options, datasetInfo, availability);
+            // ============ 步骤8: 根据实际落盘瓦片生成 layer.json ============
+            Gir.log.info(">> 步骤{}: 根据实际瓦片构建 Availability 并写入 layer.json", ++stepIndex);
+            Map<Integer, List<Range>> actualAvailability =
+                    buildActualAvailability(output.toPath(), options);
+            writeLayerJson(output.toPath(), options, datasetInfo, actualAvailability);
             Gir.log.info("  layer.json 已生成: {}", output.toPath().resolve("layer.json").toAbsolutePath());
 
         } finally {
@@ -324,59 +327,97 @@ public final class CesiumTerrainGenerator {
      * @param options 生成选项
      * @return 各缩放级别的实际瓦片范围
      */
-    private static Map<Integer, Range> buildActualAvailability(Path output, CesiumOptions options) {
-        Map<Integer, Range> result = new LinkedHashMap<>();
+    private static Map<Integer, List<Range>> buildActualAvailability(Path output, CesiumOptions options) {
+        Map<Integer, List<Range>> result = new LinkedHashMap<>();
 
         for (int zoom = options.minZoom(); zoom <= options.maxZoom(); zoom++) {
             Path zoomDir = output.resolve(Integer.toString(zoom));
-            if (!Files.exists(zoomDir) || !Files.isDirectory(zoomDir)) {
+            if (!Files.isDirectory(zoomDir)) {
                 continue;
             }
 
-            int minX = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE;
-            int minY = Integer.MAX_VALUE, maxY = Integer.MIN_VALUE;
-
-            // 遍历 x 目录
+            // 每一个 X 保存实际存在的 Y。不能再用全局 min/max，否则不规则边界会被膨胀成大矩形。
+            Map<Integer, List<Integer>> tilesByX = new TreeMap<>();
             File[] xDirs = zoomDir.toFile().listFiles();
-            if (xDirs == null) continue;
+            if (xDirs == null) {
+                continue;
+            }
 
             for (File xDir : xDirs) {
-                if (!xDir.isDirectory()) continue;
-
-                int x;
-                try {
-                    x = Integer.parseInt(xDir.getName());
-                } catch (NumberFormatException e) {
+                if (!xDir.isDirectory()) {
                     continue;
                 }
 
-                // 遍历 y 文件
+                final int x;
+                try {
+                    x = Integer.parseInt(xDir.getName());
+                } catch (NumberFormatException ignored) {
+                    continue;
+                }
+
                 File[] yFiles = xDir.listFiles();
-                if (yFiles == null) continue;
+                if (yFiles == null) {
+                    continue;
+                }
 
+                List<Integer> ys = new ArrayList<>();
                 for (File yFile : yFiles) {
-                    String fileName = yFile.getName();
-                    if (!fileName.endsWith(".terrain")) continue;
-
-                    int y;
-                    try {
-                        y = Integer.parseInt(fileName.replace(".terrain", ""));
-                    } catch (NumberFormatException e) {
+                    if (!yFile.isFile()) {
                         continue;
                     }
+                    String fileName = yFile.getName();
+                    if (!fileName.endsWith(".terrain")) {
+                        continue;
+                    }
+                    try {
+                        ys.add(Integer.parseInt(fileName.substring(0, fileName.length() - ".terrain".length())));
+                    } catch (NumberFormatException ignored) {
+                        // 忽略非标准 terrain 文件名
+                    }
+                }
 
-                    minX = Math.min(minX, x);
-                    maxX = Math.max(maxX, x);
-                    minY = Math.min(minY, y);
-                    maxY = Math.max(maxY, y);
+                if (!ys.isEmpty()) {
+                    Collections.sort(ys);
+                    tilesByX.put(x, ys);
                 }
             }
 
-            // 只有找到有效瓦片时才添加
-            if (minX != Integer.MAX_VALUE) {
-                result.put(zoom, new Range(minX, minY, maxX, maxY));
-                Gir.log.info("  Zoom {}: 实际瓦片范围 X=[{}, {}] Y=[{}, {}]",
-                        zoom, minX, maxX, minY, maxY);
+            List<Range> levelRanges = new ArrayList<>();
+
+            // 先按单个 X 将 Y 拆成真实的连续段。
+            // 例如 y=[44,45,46,49] -> [44..46] + [49..49]，绝不虚构 47/48。
+            for (Map.Entry<Integer, List<Integer>> entry : tilesByX.entrySet()) {
+                int x = entry.getKey();
+                List<Integer> ys = entry.getValue();
+                if (ys.isEmpty()) {
+                    continue;
+                }
+
+                int startY = ys.get(0);
+                int previousY = startY;
+                for (int i = 1; i < ys.size(); i++) {
+                    int currentY = ys.get(i);
+                    if (currentY == previousY) {
+                        continue;
+                    }
+                    if (currentY == previousY + 1) {
+                        previousY = currentY;
+                        continue;
+                    }
+
+                    levelRanges.add(new Range(x, startY, x, previousY));
+                    startY = currentY;
+                    previousY = currentY;
+                }
+                levelRanges.add(new Range(x, startY, x, previousY));
+            }
+
+            // 为了绝对避免 404，这里不跨 X 合并。
+            // layer.json 会稍大一点，但每个 rectangle 都和磁盘上的真实文件一一对应。
+            if (!levelRanges.isEmpty()) {
+                result.put(zoom, levelRanges);
+                Gir.log.info("  Zoom {}: 实际 availability 矩形数 {}，X目录数 {}",
+                        zoom, levelRanges.size(), tilesByX.size());
             }
         }
 
@@ -403,7 +444,7 @@ public final class CesiumTerrainGenerator {
      * @throws IOException 文件写入错误
      */
     private static void writeLayerJson(Path output, CesiumOptions options, DatasetInfo info,
-                                       Map<Integer, Range> availability) throws IOException {
+                                       Map<Integer, List<Range>> availability) throws IOException {
         ObjectMapper mapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
         ObjectNode root = mapper.createObjectNode();
 
@@ -423,15 +464,21 @@ public final class CesiumTerrainGenerator {
         // 数据地理范围 [west, south, east, north]
         root.putArray("bounds").add(info.west()).add(info.south()).add(info.east()).add(info.north());
 
-        // 各缩放级别的瓦片范围（使用 TMS 坐标）
+        // available 的数组下标就是 zoom level，因此必须保留空级别，不能只遍历 Map.values()。
         ArrayNode available = root.putArray("available");
-        for (Range range : availability.values()) {
+        for (int zoom = 0; zoom <= options.maxZoom(); zoom++) {
             ArrayNode level = available.addArray();
-            level.addObject()
-                    .put("startX", range.minX())
-                    .put("startY", range.minY())
-                    .put("endX", range.maxX())
-                    .put("endY", range.maxY());
+            List<Range> ranges = availability.get(zoom);
+            if (ranges == null) {
+                continue;
+            }
+            for (Range range : ranges) {
+                level.addObject()
+                        .put("startX", range.minX())
+                        .put("startY", range.minY())
+                        .put("endX", range.maxX())
+                        .put("endY", range.maxY());
+            }
         }
 
         // 写入文件
@@ -665,25 +712,33 @@ public final class CesiumTerrainGenerator {
                 // 编码为 quantized-mesh 格式
                 byte[] tile = CesiumQuantizedMeshEncoder.encode(heights, bounds, gzip);
 
-                // 如果编码返回 null（全NaN），生成一个空的但合法的 terrain 文件
+                // 全 NaN 表示该瓦片没有任何有效 DEM 数据：不要制造 0m 空地形。
+                // 不落盘后，最终的 actualAvailability 也不会把它声明为可用。
                 if (tile == null) {
-                    tile = CesiumQuantizedMeshEncoder.createEmptyTile(bounds, gzip);
-                    skippedCount.incrementAndGet();
+                    long skipped = skippedCount.incrementAndGet();
+                    long processed = completedCount.get() + skipped + errorCount.get();
+                    if (processed % 100 == 0 || processed == totalTiles) {
+                        Gir.log.info("  进度: {}/{} ({}%)，生成={} 跳过={} 失败={}",
+                                processed, totalTiles,
+                                String.format("%.1f", (double) processed / totalTiles * 100),
+                                completedCount.get(), skippedCount.get(), errorCount.get());
+                    }
+                    return null;
                 }
 
-                // 写入文件（无论是否有数据，都生成文件）
                 Path target = output.resolve(Integer.toString(zoom))
                         .resolve(Integer.toString(x))
                         .resolve(y + ".terrain");
                 Files.createDirectories(target.getParent());
                 Files.write(target, tile);
 
-                // 更新进度
                 long completed = completedCount.incrementAndGet();
-                if (completed % 100 == 0 || completed == totalTiles) {
-                    Gir.log.info("  进度: {}/{} ({}%)",
-                            completed, totalTiles,
-                            String.format("%.1f", (double) completed / totalTiles * 100));
+                long processed = completed + skippedCount.get() + errorCount.get();
+                if (processed % 100 == 0 || processed == totalTiles) {
+                    Gir.log.info("  进度: {}/{} ({}%)，生成={} 跳过={} 失败={}",
+                            processed, totalTiles,
+                            String.format("%.1f", (double) processed / totalTiles * 100),
+                            completedCount.get(), skippedCount.get(), errorCount.get());
                 }
             } catch (Exception e) {
                 errorCount.incrementAndGet();
@@ -718,44 +773,101 @@ public final class CesiumTerrainGenerator {
      * @return 高程值二维数组 [row][column]，无效值为 Float.NaN
      */
     private static float[][] sample(Band band, Bounds bounds, DatasetInfo info, int gridSize) {
-        // 计算瓦片范围对应的 DEM 像素坐标
-        // 注意：readY 使用 north（北边界），因为 DEM 是北向朝上的
-        int readX = Math.max(0, (int) Math.floor((bounds.west() - info.originX()) / info.resolutionX()));
-        int readY = Math.max(0, (int) Math.floor((bounds.north() - info.originY()) / info.resolutionY()));
-        int readEndX = Math.min(info.width(), (int) Math.ceil((bounds.east() - info.originX()) / info.resolutionX()));
-        int readEndY = Math.min(info.height(), (int) Math.ceil((bounds.south() - info.originY()) / info.resolutionY()));
-
-        // 如果瓦片完全超出 DEM 范围，返回全 NaN 网格
-        if (readEndX <= readX || readEndY <= readY) {
-            float[][] noData = new float[gridSize][gridSize];
-            for (float[] row : noData) java.util.Arrays.fill(row, Float.NaN);
-            return noData;
+        float[][] result = new float[gridSize][gridSize];
+        for (float[] row : result) {
+            java.util.Arrays.fill(row, Float.NaN);
         }
 
-        // 使用 GDAL ReadRaster 读取并重采样高程数据
-        // ReadRaster 会自动处理分辨率差异，将 readWidth x readHeight 重采样为 gridSize x gridSize
-        float[] values = new float[gridSize * gridSize];
-        band.ReadRaster(readX, readY,                    // 读取起始像素坐标
-                readEndX - readX, readEndY - readY,      // 读取范围（像素数）
-                gridSize, gridSize,                      // 输出网格大小
-                gdalconst.GDT_Float32,                   // 输出数据类型
-                values);                                 // 输出数组
+        // 先算 tile 与 DEM 的真实地理交集。
+        double intersectWest = Math.max(bounds.west(), info.west());
+        double intersectEast = Math.min(bounds.east(), info.east());
+        double intersectSouth = Math.max(bounds.south(), info.south());
+        double intersectNorth = Math.min(bounds.north(), info.north());
 
-        // 获取 NoData 值
+        if (intersectEast <= intersectWest || intersectNorth <= intersectSouth) {
+            return result;
+        }
+
+        double tileWidth = bounds.east() - bounds.west();
+        double tileHeight = bounds.north() - bounds.south();
+        if (tileWidth <= 0.0 || tileHeight <= 0.0) {
+            return result;
+        }
+
+        // 将地理交集映射到输出 grid 的对应子区域。
+        // 关键点：只填交集所占的格子，不能把交集 DEM 拉伸到整个 tile。
+        int colStart = clampGridIndex((int) Math.ceil(
+                (intersectWest - bounds.west()) / tileWidth * (gridSize - 1) - 1e-10), gridSize);
+        int colEnd = clampGridIndex((int) Math.floor(
+                (intersectEast - bounds.west()) / tileWidth * (gridSize - 1) + 1e-10), gridSize);
+        int rowStart = clampGridIndex((int) Math.ceil(
+                (bounds.north() - intersectNorth) / tileHeight * (gridSize - 1) - 1e-10), gridSize);
+        int rowEnd = clampGridIndex((int) Math.floor(
+                (bounds.north() - intersectSouth) / tileHeight * (gridSize - 1) + 1e-10), gridSize);
+
+        if (colEnd < colStart || rowEnd < rowStart) {
+            return result;
+        }
+
+        int outWidth = colEnd - colStart + 1;
+        int outHeight = rowEnd - rowStart + 1;
+
+        // 使用输出子网格首尾采样点对应的真实经纬度计算源读取窗口。
+        double sampleWest = bounds.west() + colStart * tileWidth / (gridSize - 1.0);
+        double sampleEast = bounds.west() + colEnd * tileWidth / (gridSize - 1.0);
+        double sampleNorth = bounds.north() - rowStart * tileHeight / (gridSize - 1.0);
+        double sampleSouth = bounds.north() - rowEnd * tileHeight / (gridSize - 1.0);
+
+        double resX = info.resolutionX();
+        double resY = info.resolutionY();
+        if (resX == 0.0 || resY == 0.0) {
+            return result;
+        }
+
+        int readX = Math.max(0, (int) Math.floor((sampleWest - info.originX()) / resX));
+        int readY = Math.max(0, (int) Math.floor((sampleNorth - info.originY()) / resY));
+
+        // +1 让单点/窄交集也至少覆盖一个源像素。
+        int readEndX = Math.min(info.width(),
+                (int) Math.ceil((sampleEast - info.originX()) / resX) + 1);
+        int readEndY = Math.min(info.height(),
+                (int) Math.ceil((sampleSouth - info.originY()) / resY) + 1);
+
+        if (readEndX <= readX || readEndY <= readY) {
+            return result;
+        }
+
+        float[] values = new float[outWidth * outHeight];
+        band.ReadRaster(
+                readX, readY,
+                readEndX - readX, readEndY - readY,
+                outWidth, outHeight,
+                gdalconst.GDT_Float32,
+                values
+        );
+
         Double[] noData = new Double[1];
         band.GetNoDataValue(noData);
+        Double noDataValue = noData[0];
 
-        // 转换为二维数组，并将 NoData 转换为 NaN
-        float[][] result = new float[gridSize][gridSize];
-        for (int row = 0; row < gridSize; row++) {
-            for (int column = 0; column < gridSize; column++) {
-                float value = values[row * gridSize + column];
-                // 将 NoData 值转换为 NaN（NaN 在 quantized-mesh 编码中会被忽略）
-                result[row][column] = noData[0] != null && Double.compare(value, noData[0]) == 0
-                        ? Float.NaN : value;
+        for (int row = 0; row < outHeight; row++) {
+            for (int col = 0; col < outWidth; col++) {
+                float value = values[row * outWidth + col];
+                boolean invalid = Float.isNaN(value) || Float.isInfinite(value);
+                if (!invalid && noDataValue != null) {
+                    // 对浮点 NoData 使用很小容差，避免重采样后的表示误差。
+                    double tolerance = Math.max(1e-6, Math.abs(noDataValue) * 1e-7);
+                    invalid = Math.abs(value - noDataValue) <= tolerance;
+                }
+                result[rowStart + row][colStart + col] = invalid ? Float.NaN : value;
             }
         }
+
         return result;
+    }
+
+    private static int clampGridIndex(int value, int gridSize) {
+        return Math.max(0, Math.min(gridSize - 1, value));
     }
 
     /**

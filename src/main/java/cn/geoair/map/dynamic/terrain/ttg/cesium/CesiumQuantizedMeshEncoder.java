@@ -4,7 +4,9 @@ import cn.geoair.map.dynamic.terrain.ttg.cesium.model.Bounds;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.zip.GZIPOutputStream;
 
@@ -101,19 +103,33 @@ final class CesiumQuantizedMeshEncoder {
         if (size < 2 || heights[0].length != size) {
             throw new IllegalArgumentException("Height grid must be at least 2x2");
         }
+        for (float[] row : heights) {
+            if (row.length != size) {
+                throw new IllegalArgumentException("Height grid must be square");
+            }
+        }
+
+        // 如果整块没有任何有效高程，明确返回 null，让生成器跳过落盘。
+        if (!containsFiniteHeight(heights)) {
+            return null;
+        }
+
+        // 部分覆盖 tile / DEM 内部 NoData 不能简单替换成 minHeight，
+        // 否则会在边界形成陡峭的“最低高程墙”。这里使用最近有效样本补齐网格。
+        float[][] filledHeights = fillMissingHeightsNearest(heights);
+
         float minHeight = Float.POSITIVE_INFINITY;
         float maxHeight = Float.NEGATIVE_INFINITY;
-        for (float[] row : heights) {
-            if (row.length != size) throw new IllegalArgumentException("Height grid must be square");
-            for (float height : row)
-                if (!Float.isNaN(height)) {
+        for (float[] row : filledHeights) {
+            for (float height : row) {
+                if (Float.isFinite(height)) {
                     minHeight = Math.min(minHeight, height);
                     maxHeight = Math.max(maxHeight, height);
                 }
+            }
         }
-        if (!Float.isFinite(minHeight)) return null;
 
-        Vertex[] sourceVertices = buildVertices(heights, bounds, minHeight, maxHeight);
+        Vertex[] sourceVertices = buildVertices(filledHeights, bounds, minHeight, maxHeight);
         Mesh mesh = reorderForHighWaterMark(sourceVertices, buildGridTriangles(size));
 
         ByteArrayOutputStream raw = new ByteArrayOutputStream();
@@ -142,32 +158,77 @@ final class CesiumQuantizedMeshEncoder {
     }
 
     /**
-     * 创建一个空的但合法的 quantized-mesh 瓦片
-     * <p>
-     * 当瓦片完全超出 DEM 范围时（高程全为 NaN），生成一个最小的合法 terrain 文件。
-     * 这个文件包含4个角点（高程为0），可以被 Cesium 正确解析。
-     * <p>
-     * 空瓦片结构：
-     * - Header: 使用 bounds 中心点，高程为0
-     * - 顶点: 4个角点（2x2网格）
-     * - 三角形: 2个退化三角形
-     * - 边缘索引: 4个边缘
-     *
-     * @param bounds 瓦片的地理范围
-     * @param gzip   是否 gzip 压缩
-     * @return 空瓦片的字节数组
-     * @throws IOException 编码错误
+     * 判断网格中是否存在至少一个有效高程。
      */
-    static byte[] createEmptyTile(Bounds bounds, boolean gzip) throws IOException {
-        // 创建一个 2x2 的全零高程网格（最小合法网格）
-        float[][] emptyHeights = new float[2][2];
-        emptyHeights[0][0] = 0.0f;
-        emptyHeights[0][1] = 0.0f;
-        emptyHeights[1][0] = 0.0f;
-        emptyHeights[1][1] = 0.0f;
+    private static boolean containsFiniteHeight(float[][] heights) {
+        for (float[] row : heights) {
+            for (float value : row) {
+                if (Float.isFinite(value)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 
-        // 使用正常的编码流程，确保生成合法的 quantized-mesh
-        return encode(emptyHeights, bounds, gzip);
+    /**
+     * 使用多源 BFS 将 NaN/Infinity 填为最近的有效高程。
+     * 这样边界 tile 仍然保持规则网格，同时不会把缺失区硬压到 minHeight。
+     */
+    private static float[][] fillMissingHeightsNearest(float[][] source) {
+        int rows = source.length;
+        int cols = source[0].length;
+        float[][] result = new float[rows][cols];
+        int[][] nearestRow = new int[rows][cols];
+        int[][] nearestCol = new int[rows][cols];
+        boolean[][] visited = new boolean[rows][cols];
+        ArrayDeque<int[]> queue = new ArrayDeque<>();
+
+        for (int r = 0; r < rows; r++) {
+            result[r] = Arrays.copyOf(source[r], cols);
+            Arrays.fill(nearestRow[r], -1);
+            Arrays.fill(nearestCol[r], -1);
+            for (int c = 0; c < cols; c++) {
+                if (Float.isFinite(source[r][c])) {
+                    visited[r][c] = true;
+                    nearestRow[r][c] = r;
+                    nearestCol[r][c] = c;
+                    queue.addLast(new int[]{r, c});
+                }
+            }
+        }
+
+        final int[] dr = {-1, 1, 0, 0};
+        final int[] dc = {0, 0, -1, 1};
+        while (!queue.isEmpty()) {
+            int[] current = queue.removeFirst();
+            int r = current[0];
+            int c = current[1];
+            for (int i = 0; i < 4; i++) {
+                int nr = r + dr[i];
+                int nc = c + dc[i];
+                if (nr < 0 || nr >= rows || nc < 0 || nc >= cols || visited[nr][nc]) {
+                    continue;
+                }
+                visited[nr][nc] = true;
+                nearestRow[nr][nc] = nearestRow[r][c];
+                nearestCol[nr][nc] = nearestCol[r][c];
+                queue.addLast(new int[]{nr, nc});
+            }
+        }
+
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                if (!Float.isFinite(result[r][c])) {
+                    int rr = nearestRow[r][c];
+                    int cc = nearestCol[r][c];
+                    if (rr >= 0 && cc >= 0) {
+                        result[r][c] = source[rr][cc];
+                    }
+                }
+            }
+        }
+        return result;
     }
 
     /**
@@ -187,13 +248,13 @@ final class CesiumQuantizedMeshEncoder {
      * @return 量化顶点数组
      */
     private static Vertex[] buildVertices(float[][] heights, Bounds bounds,
-                                           float minHeight, float maxHeight) {
+                                          float minHeight, float maxHeight) {
         int size = heights.length;
         Vertex[] vertices = new Vertex[size * size];
         double range = maxHeight - minHeight;
         for (int row = 0; row < size; row++) {
             for (int col = 0; col < size; col++) {
-                float value = Float.isNaN(heights[row][col]) ? minHeight : heights[row][col];
+                float value = heights[row][col];
                 int u = (int) Math.round(col * QUANTIZATION_MAX / (double) (size - 1));
                 int v = (int) Math.round((size - 1 - row) * QUANTIZATION_MAX / (double) (size - 1));
                 int h = range == 0.0 ? 0 : clamp(Math.round((value - minHeight) * QUANTIZATION_MAX / range));
@@ -310,56 +371,144 @@ final class CesiumQuantizedMeshEncoder {
     }
 
     /**
-     * 写入 quantized-mesh 文件头
-     * <p>
-     * 文件头包含以下信息（共 64 字节）：
-     * <p>
-     * 1. 中心点 Cartesian3 (24 字节):
-     *    - centerX: double (8字节) - 瓦片中心的地心坐标 X
-     *    - centerY: double (8字节) - 瓦片中心的地心坐标 Y
-     *    - centerZ: double (8字节) - 瓦片中心的地心坐标 Z
-     * <p>
-     * 2. 高程范围 (8 字节):
-     *    - minimumHeight: float (4字节) - 最小高程
-     *    - maximumHeight: float (4字节) - 最大高程
-     * <p>
-     * 3. 包围球 (32 字节):
-     *    - boundingSphereCenterX: double (8字节)
-     *    - boundingSphereCenterY: double (8字节)
-     *    - boundingSphereCenterZ: double (8字节)
-     *    - boundingSphereRadius: double (8字节)
-     * <p>
-     * 4. 地心坐标系 (24 字节):
-     *    - horizonOcclusionPointX: double (8字节) - 地平线遮挡点 X / SEMI_MAJOR_AXIS
-     *    - horizonOcclusionPointY: double (8字节) - 地平线遮挡点 Y / SEMI_MAJOR_AXIS
-     *    - horizonOcclusionPointZ: double (8字节) - 地平线遮挡点 Z / SEMI_MINOR_AXIS
-     *
-     * @param out        输出流
-     * @param vertices   顶点列表
-     * @param bounds     瓦片地理范围
-     * @param minHeight  最小高程
-     * @param maxHeight  最大高程
+     * 写入 quantized-mesh 88 字节 Header。
+     * HorizonOcclusionPoint 使用与 Cesium EllipsoidalOccluder 一致的
+     * ellipsoid-scaled space horizon culling 算法计算。
      */
     private static void writeHeader(ByteArrayOutputStream out, List<Vertex> vertices,
-                                     Bounds bounds, float minHeight, float maxHeight) {
-        double[] center = toEcef((bounds.west() + bounds.east()) * .5,
-                (bounds.south() + bounds.north()) * .5, (minHeight + maxHeight) * .5);
+                                    Bounds bounds, float minHeight, float maxHeight) {
+        // 使用瓦片地理中心 + 高程中值作为一个稳定的包围球中心。
+        // 半径取到全部顶点的最大距离，因此虽然不是最小包围球，但一定覆盖所有顶点。
+        double[] center = toEcef(
+                (bounds.west() + bounds.east()) * 0.5,
+                (bounds.south() + bounds.north()) * 0.5,
+                (minHeight + maxHeight) * 0.5
+        );
+
         double radius = 0.0;
+        List<double[]> ecefPositions = new ArrayList<>(vertices.size());
         for (Vertex vertex : vertices) {
-            radius = Math.max(radius, distance(center, toEcef(vertex.longitude, vertex.latitude, vertex.sourceHeight)));
+            double[] position = toEcef(vertex.longitude, vertex.latitude, vertex.sourceHeight);
+            ecefPositions.add(position);
+            radius = Math.max(radius, distance(center, position));
         }
+
+        double[] horizon = computeHorizonCullingPoint(center, ecefPositions, minHeight);
+
         writeDoubleLE(out, center[0]);
         writeDoubleLE(out, center[1]);
         writeDoubleLE(out, center[2]);
         writeFloatLE(out, minHeight);
         writeFloatLE(out, maxHeight);
+
         writeDoubleLE(out, center[0]);
         writeDoubleLE(out, center[1]);
         writeDoubleLE(out, center[2]);
         writeDoubleLE(out, radius);
-        writeDoubleLE(out, center[0] / SEMI_MAJOR_AXIS);
-        writeDoubleLE(out, center[1] / SEMI_MAJOR_AXIS);
-        writeDoubleLE(out, center[2] / SEMI_MINOR_AXIS);
+
+        writeDoubleLE(out, horizon[0]);
+        writeDoubleLE(out, horizon[1]);
+        writeDoubleLE(out, horizon[2]);
+    }
+
+    /**
+     * 计算 quantized-mesh Header 中的 HorizonOcclusionPoint。
+     * 返回值位于 ellipsoid-scaled ECEF 坐标系。
+     *
+     * 算法对应 CesiumJS EllipsoidalOccluder.computeHorizonCullingPointPossiblyUnderEllipsoid。
+     */
+    private static double[] computeHorizonCullingPoint(double[] directionToPointEcef,
+                                                       List<double[]> positionsEcef,
+                                                       double minimumHeight) {
+        // 当最低高程低于椭球面时，Cesium 会使用按 minimumHeight 收缩后的椭球。
+        double radiusX = SEMI_MAJOR_AXIS;
+        double radiusY = SEMI_MAJOR_AXIS;
+        double radiusZ = SEMI_MINOR_AXIS;
+        if (minimumHeight < 0.0 && SEMI_MINOR_AXIS > -minimumHeight) {
+            radiusX += minimumHeight;
+            radiusY += minimumHeight;
+            radiusZ += minimumHeight;
+        }
+
+        double[] scaledDirection = new double[]{
+                directionToPointEcef[0] / radiusX,
+                directionToPointEcef[1] / radiusY,
+                directionToPointEcef[2] / radiusZ
+        };
+        normalizeInPlace(scaledDirection);
+
+        double resultMagnitude = 0.0;
+        for (double[] position : positionsEcef) {
+            double sx = position[0] / radiusX;
+            double sy = position[1] / radiusY;
+            double sz = position[2] / radiusZ;
+
+            double magnitudeSquared = sx * sx + sy * sy + sz * sz;
+            double magnitude = Math.sqrt(magnitudeSquared);
+            if (!(magnitude > 0.0) || !Double.isFinite(magnitude)) {
+                continue;
+            }
+
+            double dx = sx / magnitude;
+            double dy = sy / magnitude;
+            double dz = sz / magnitude;
+
+            // Cesium 算法中，位于椭球以下的点在这个计算里按椭球表面处理。
+            magnitudeSquared = Math.max(1.0, magnitudeSquared);
+            magnitude = Math.max(1.0, magnitude);
+
+            double cosAlpha = dx * scaledDirection[0]
+                              + dy * scaledDirection[1]
+                              + dz * scaledDirection[2];
+
+            double crossX = dy * scaledDirection[2] - dz * scaledDirection[1];
+            double crossY = dz * scaledDirection[0] - dx * scaledDirection[2];
+            double crossZ = dx * scaledDirection[1] - dy * scaledDirection[0];
+            double sinAlpha = Math.sqrt(crossX * crossX + crossY * crossY + crossZ * crossZ);
+
+            double cosBeta = 1.0 / magnitude;
+            double sinBeta = Math.sqrt(Math.max(0.0, magnitudeSquared - 1.0)) * cosBeta;
+            double denominator = cosAlpha * cosBeta - sinAlpha * sinBeta;
+
+            if (denominator <= 0.0 || !Double.isFinite(denominator)) {
+                // 极低级别或方向退化时采用保守值，宁可少裁剪也不要错误隐藏 terrain。
+                return multiply(scaledDirection, 1.0e9);
+            }
+
+            double candidateMagnitude = 1.0 / denominator;
+            if (!Double.isFinite(candidateMagnitude) || candidateMagnitude <= 0.0) {
+                return multiply(scaledDirection, 1.0e9);
+            }
+            resultMagnitude = Math.max(resultMagnitude, candidateMagnitude);
+        }
+
+        if (!(resultMagnitude > 0.0) || !Double.isFinite(resultMagnitude)) {
+            return multiply(scaledDirection, 1.0e9);
+        }
+        return multiply(scaledDirection, resultMagnitude);
+    }
+
+    private static void normalizeInPlace(double[] vector) {
+        double magnitude = Math.sqrt(vector[0] * vector[0]
+                                     + vector[1] * vector[1]
+                                     + vector[2] * vector[2]);
+        if (!(magnitude > 0.0) || !Double.isFinite(magnitude)) {
+            vector[0] = 1.0;
+            vector[1] = 0.0;
+            vector[2] = 0.0;
+            return;
+        }
+        vector[0] /= magnitude;
+        vector[1] /= magnitude;
+        vector[2] /= magnitude;
+    }
+
+    private static double[] multiply(double[] vector, double scalar) {
+        return new double[]{
+                vector[0] * scalar,
+                vector[1] * scalar,
+                vector[2] * scalar
+        };
     }
 
     /**
@@ -427,7 +576,7 @@ final class CesiumQuantizedMeshEncoder {
      * 每个量化值与前一顶点同一属性的差值先 ZigZag 编码，再以 uint16 小端写入。
      */
     private static void writeZigZagDelta(ByteArrayOutputStream out, List<Vertex> vertices,
-                                          Coordinate coordinate) {
+                                         Coordinate coordinate) {
         int previous = 0;
         for (Vertex vertex : vertices) {
             int value = coordinate.valueOf(vertex);
