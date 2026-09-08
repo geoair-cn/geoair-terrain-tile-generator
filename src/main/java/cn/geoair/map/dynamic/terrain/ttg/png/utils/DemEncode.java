@@ -1,4 +1,4 @@
-package cn.geoair.map.dynamic.terrain.ttg.png;
+package cn.geoair.map.dynamic.terrain.ttg.png.utils;
 
 public class DemEncode {
 

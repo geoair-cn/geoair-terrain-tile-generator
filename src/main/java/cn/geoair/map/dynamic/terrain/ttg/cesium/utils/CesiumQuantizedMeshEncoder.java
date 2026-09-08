@@ -1,4 +1,4 @@
-package cn.geoair.map.dynamic.terrain.ttg.cesium;
+package cn.geoair.map.dynamic.terrain.ttg.cesium.utils;
 
 import cn.geoair.map.dynamic.terrain.ttg.cesium.model.Bounds;
 

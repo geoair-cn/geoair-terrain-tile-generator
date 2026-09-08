@@ -1,6 +1,6 @@
 package cn.geoair.map.dynamic.terrain.ttg.cesium.model;
 
-import cn.geoair.map.dynamic.terrain.ttg.cesium.CesiumTerrainGenerator.MeshPrecision;
+import cn.geoair.map.dynamic.terrain.ttg.cesium.utils.CesiumTerrainGenerator.MeshPrecision;
 
 /**
  * Cesium quantized-mesh 地形瓦片生成选项

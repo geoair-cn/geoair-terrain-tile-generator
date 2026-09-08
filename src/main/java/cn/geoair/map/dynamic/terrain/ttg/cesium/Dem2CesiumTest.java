@@ -1,4 +1,6 @@
-import cn.geoair.map.dynamic.terrain.ttg.cesium.CesiumTerrainGenerator;
+package cn.geoair.map.dynamic.terrain.ttg.cesium;
+
+import cn.geoair.map.dynamic.terrain.ttg.cesium.utils.CesiumTerrainGenerator;
 import cn.geoair.map.dynamic.terrain.ttg.cesium.model.CesiumOptions;
 
 /**

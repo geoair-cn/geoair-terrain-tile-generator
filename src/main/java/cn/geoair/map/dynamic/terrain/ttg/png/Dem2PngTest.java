@@ -1,4 +1,5 @@
-import cn.geoair.map.dynamic.terrain.ttg.png.PngTerrainTileGenerator;
+package cn.geoair.map.dynamic.terrain.ttg.png;
+
 import cn.geoair.map.dynamic.terrain.ttg.png.model.Options;
 
 /**
