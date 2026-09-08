@@ -44,26 +44,7 @@
             <artifactId>geoair-base</artifactId>
             <version>J8.1.6</version>
         </dependency>
-        <dependency>
-            <groupId>cn.geoair.devkit</groupId>
-            <artifactId>geoair-web</artifactId>
-            <version>J8.1.6</version>
-        </dependency>
-        <dependency>
-            <groupId>cn.geoair.devkit</groupId>
-            <artifactId>geoair-geo-tools</artifactId>
-            <version>J8.1.6</version>
-        </dependency>
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <version>1.18.46</version>
-        </dependency>
-        <dependency>
-            <groupId>javax.servlet</groupId>
-            <artifactId>jstl</artifactId>
-            <version>1.2</version>
-        </dependency>
+
         <dependency>
             <groupId>cn.hutool</groupId>
             <artifactId>hutool-all</artifactId>
@@ -84,16 +65,7 @@
             <artifactId>jackson-databind</artifactId>
             <version>2.15.2</version>
         </dependency>
-        <dependency>
-            <groupId>com.google.guava</groupId>
-            <artifactId>guava</artifactId>
-            <version>32.1.2-jre</version>
-        </dependency>
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-simple</artifactId>
-            <version>2.0.9</version>
-        </dependency>
+
     </dependencies>
 
     <build>
