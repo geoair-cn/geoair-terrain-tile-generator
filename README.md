@@ -80,6 +80,9 @@ Cesium 输出固定 EPSG:4326 + TMS 瓦片方案，输入非 4326 时自动重�
 示例：
 
 ```java
+import cn.geoair.map.dynamic.terrain.ttg.cesium.model.CesiumOptions;
+import cn.geoair.map.dynamic.terrain.ttg.cesium.utils.CesiumTerrainGenerator;
+
 CesiumOptions options = CesiumOptions.standardOptions(12, "UUID");
 CesiumTerrainGenerator.generate("input.tif", "outcesium", options);
 ```
@@ -120,25 +123,45 @@ mvn compile
 
 ```
 cn.geoair.map.dynamic.terrain.ttg/
-├── model/          # 共享数据模型
-│   ├── Bounds.java           # 瓦片地理边界
-│   ├── Range.java            # 瓦片行列号范围
-│   ├── CesiumOptions.java    # Cesium 生成选项
-│   └── DatasetInfo.java      # 数据集信息
-├── png/            # PNG 地形瓦片生成
-│   ├── Dem2Png.java                  # 入口
-│   ├── PngTerrainTileGenerator.java  # 核心调度
-│   ├── CreateTile.java           # 瓦片创建（ThreadLocal 优化）
-│   ├── DemEncode.java            # RGB 编码（Mapbox/Terrarium）
-│   ├── GdalHelper.java           # GDAL 驱动/重采样/重投影
-│   ├── TileMath.java             # 瓦片坐标计算
-│   ├── IoHelper.java             # 文件IO/UUID/时间格式化
-│   └── MBTilesWriter.java        # MBTiles SQLite 写入
-└── cesium/         # Cesium quantized-mesh 生成
-    ├── Dem2Cesium.java                   # 入口
-    ├── CesiumTerrainGenerator.java       # 核心调度
-    ├── CesiumTileMath.java               # TMS 坐标计算
-    └── CesiumQuantizedMeshEncoder.java   # 二进制编码
+├── png/                            # Mapbox/Terrarium PNG 二维地形（独立实现）
+│   ├── Dem2Png.java                # 命令行入口
+│   ├── Dem2PngTest.java            # 本地调试入口
+│   ├── PngTerrainTileGenerator.java
+│   ├── model/                      # PNG 切片配置与数据模型
+│   │   ├── Options.java
+│   │   ├── DsInfo.java
+│   │   ├── LevelInfo.java
+│   │   ├── OverviewInfo.java
+│   │   ├── OverViewInfoResult.java
+│   │   ├── GeoQueryResult.java
+│   │   ├── ReadInfo.java
+│   │   └── WriteInfo.java
+│   └── utils/                      # PNG 切片工具
+│       ├── CreateTile.java
+│       ├── DemEncode.java
+│       ├── GdalHelper.java
+│       ├── IoHelper.java
+│       ├── MBTilesWriter.java
+│       ├── ProgressBar.java
+│       └── TileMath.java
+└── cesium/                         # Cesium quantized-mesh 三维地形（独立实现）
+    ├── Dem2Cesium.java             # 命令行入口
+    ├── Dem2CesiumTest.java         # 本地调试入口
+    ├── model/                      # Cesium 切片配置与元数据模型
+    │   ├── Bounds.java
+    │   ├── CesiumOptions.java
+    │   ├── DatasetInfo.java
+    │   └── Range.java
+    └── utils/                      # Cesium 编码与切片工具
+        ├── CesiumQuantizedMeshEncoder.java
+        ├── CesiumTerrainGenerator.java
+        └── CesiumTileMath.java
+
+src/main/resources/static/
+├── cesium-terrain-demo.html        # quantized-mesh 地形验证页面
+├── cesium_xyz_terrain_debug.html   # XYZ 底图调试页面
+├── demo-cesium-tianditu-3dtiles.html
+└── Cesium/                         # 内置 CesiumJS 静态资源
 ```
 
 ## 致谢
